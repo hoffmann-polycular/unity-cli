@@ -525,7 +525,7 @@ tool, plus Go-side wrappers where piping/polling ergonomics demand it.
 
 ### `ls`
 
-🚧 **Not implemented**
+✅ **Implemented**
 
 List children of a GameObject, or root-level objects of the active scene.
 

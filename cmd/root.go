@@ -1,3 +1,30 @@
+// unity-cli - Control the Unity Editor from the command line.
+// Copyright (C) 2026 Tobias Hoffmann Polycular GmbH
+// 
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+// 
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+// 
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// 
+// COMMERCIAL LICENSE NOTICE:
+// If you wish to use this code inside a non-GPL, proprietary software product, 
+// you must instead acquire a commercial license from the copyright holder.
+// 
+// Contact: info@polycular.com | Website: https://www.polycular.com/
+// 
+// THIRD-PARTY NOTICE:
+// This file contains code originally derived from unity-cli/youngwoocho02 DevBookOfArray,
+// used under the terms of the MIT License. 
+// The MIT permission notice applies strictly to those original portions. 
+// 
 // MIT Copyright (c) 2025 DevBookOfArray
 // See /LICENSE-MIT for the full MIT license text.
 
@@ -109,6 +136,8 @@ func Execute() error {
 		if err == nil {
 			resp, err = send("exec", params)
 		}
+	case "ls":
+		resp, err = lsCmd(subArgs, send)
 	default:
 		var params map[string]interface{}
 		params, err = buildParams(subArgs, nil)
@@ -287,6 +316,12 @@ Editor Control:
   editor refresh                Refresh asset database
   editor refresh --compile      Recompile scripts and wait until done
 
+Scene:
+  ls [<path>]                   List children (or scene roots when omitted)
+  ls -r <path>                  Recurse into descendants
+  ls --components <path>        Include component types per object
+  ls --json | --plain           Structured / pipe-friendly output
+
 Console:
   console                       Read error & warning logs (default)
   console --lines 20            Limit to N entries
@@ -387,6 +422,30 @@ Examples:
   unity-cli editor play --wait
   unity-cli editor stop
   unity-cli editor refresh --compile
+`)
+	case "ls":
+		fmt.Print(`Usage: unity-cli ls [<path>] [options]
+
+List the children of a GameObject. With no path, lists root objects across
+all loaded scenes (matches the Hierarchy window).
+
+Path grammar (full reference: unity-cli-reference.md):
+  World/Player                Hierarchy path
+  World/Enemy[1]              Disambiguate duplicate sibling names
+  #14352                      Resolve by Unity instance ID
+
+Options:
+  -r, --recursive             Descend into descendants
+  -c, --components            Include each object's component type list
+  --json                      Structured JSON output (jq-friendly)
+  --plain                     One canonical path per line (xargs/grep-friendly)
+  --null-delimited            \0-separated paths (xargs -0 for paths with spaces)
+
+Examples:
+  unity-cli ls
+  unity-cli ls World/Player
+  unity-cli ls -r World --components
+  unity-cli ls -r --plain | grep Enemy
 `)
 	case "console":
 		fmt.Print(`Usage: unity-cli console [options]
