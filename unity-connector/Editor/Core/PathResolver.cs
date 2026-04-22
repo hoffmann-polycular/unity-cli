@@ -143,6 +143,123 @@ namespace UnityCliConnector
 			return BuildSegment(go);
 		}
 
+		/// <summary>
+		/// Resolves a <see cref="ComponentRef"/> against a GameObject.
+		/// Returns an error when the type is unknown, absent, or when the
+		/// object has multiple matches and no index was supplied.
+		/// </summary>
+		public static Result<Component> ResolveComponent(GameObject go, ComponentRef compRef)
+		{
+			if (go == null) return Result<Component>.Error("GameObject is null.");
+			if (!compRef.IsPresent) return Result<Component>.Error("No component specified.");
+
+			var type = TypeResolver.ResolveComponentType(compRef.TypeName);
+			if (type == null)
+				return Result<Component>.Error($"Unknown component type: '{compRef.TypeName}'.");
+
+			var comps = go.GetComponents(type);
+			if (comps == null || comps.Length == 0)
+				return Result<Component>.Error(
+					$"No {type.Name} on '{GetCanonicalPath(go)}'.");
+
+			if (compRef.Index.HasValue)
+			{
+				if (compRef.Index.Value < 0 || compRef.Index.Value >= comps.Length)
+					return Result<Component>.Error(
+						$"Index [{compRef.Index.Value}] out of range (have {comps.Length} {type.Name}).");
+				return Result<Component>.Success(comps[compRef.Index.Value]);
+			}
+
+			if (comps.Length > 1)
+				return Result<Component>.Error(
+					$"Ambiguous component '{type.Name}' on '{GetCanonicalPath(go)}' ({comps.Length} present). Use '{type.Name}[n]'.");
+
+			return Result<Component>.Success(comps[0]);
+		}
+
+		/// <summary>
+		/// Finds a root-level serialized property by user-facing name.
+		/// Tries the raw name, <c>m_PascalCase</c>, then a case-insensitive
+		/// normalized-name scan ("m_LocalPosition" → "localPosition").
+		/// </summary>
+		public static SerializedProperty FindPropertyByUserName(SerializedObject so, string userName)
+		{
+			if (so == null || string.IsNullOrEmpty(userName)) return null;
+
+			var direct = so.FindProperty(userName);
+			if (direct != null) return direct;
+
+			var pascal = "m_" + char.ToUpperInvariant(userName[0]) + userName.Substring(1);
+			direct = so.FindProperty(pascal);
+			if (direct != null) return direct;
+
+			var it = so.GetIterator();
+			var enterChildren = true;
+			while (it.NextVisible(enterChildren))
+			{
+				enterChildren = false;
+				if (NameMatches(it.name, userName) || NameMatches(it.displayName, userName))
+					return it.Copy();
+			}
+			return null;
+		}
+
+		/// <summary>
+		/// Finds a child property beneath <paramref name="parent"/> by user name,
+		/// using the same matching rules as <see cref="FindPropertyByUserName"/>.
+		/// </summary>
+		public static SerializedProperty FindRelativeByUserName(SerializedProperty parent, string userName)
+		{
+			if (parent == null || string.IsNullOrEmpty(userName)) return null;
+
+			var direct = parent.FindPropertyRelative(userName);
+			if (direct != null) return direct;
+
+			var pascal = "m_" + char.ToUpperInvariant(userName[0]) + userName.Substring(1);
+			direct = parent.FindPropertyRelative(pascal);
+			if (direct != null) return direct;
+
+			var it = parent.Copy();
+			var end = parent.GetEndProperty();
+			var enterChildren = true;
+			while (it.NextVisible(enterChildren) && !SerializedProperty.EqualContents(it, end))
+			{
+				enterChildren = false;
+				if (NameMatches(it.name, userName) || NameMatches(it.displayName, userName))
+					return it.Copy();
+			}
+			return null;
+		}
+
+		/// <summary>
+		/// "m_LocalPosition" → "localPosition". Leaves unprefixed names alone.
+		/// </summary>
+		public static string NormalizeSerializedName(string name)
+		{
+			if (string.IsNullOrEmpty(name)) return name;
+			if (name.Length > 2 && name[0] == 'm' && name[1] == '_')
+				return char.ToLowerInvariant(name[2]) + name.Substring(3);
+			return name;
+		}
+
+		private static bool NameMatches(string serializedName, string userName)
+		{
+			if (string.IsNullOrEmpty(serializedName)) return false;
+			if (string.Equals(serializedName, userName, System.StringComparison.OrdinalIgnoreCase))
+				return true;
+			var normalized = NormalizeSerializedName(serializedName);
+			if (string.Equals(normalized, userName, System.StringComparison.OrdinalIgnoreCase))
+				return true;
+			// Accept collapsed displayName: "Local Position" ⇔ "localposition"
+			if (serializedName.IndexOf(' ') >= 0)
+			{
+				var collapsed = serializedName.Replace(" ", "");
+				if (string.Equals(collapsed, userName, System.StringComparison.OrdinalIgnoreCase))
+					return true;
+			}
+			return false;
+		}
+
 		// ---- internals ----
 
 		private static Result<GameObject> ResolveSceneObject(ParsedPath parsed)

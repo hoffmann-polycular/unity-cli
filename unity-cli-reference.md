@@ -589,7 +589,7 @@ unity-cli find --prefab Assets/Prefabs/Enemy.prefab --has-overrides
 
 ### `inspect`
 
-🚧 **Not implemented**
+✅ **Implemented**
 
 Dump a GameObject, component, or property as JSON (the `cat` of objects).
 

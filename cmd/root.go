@@ -140,6 +140,8 @@ func Execute() error {
 		resp, err = lsCmd(subArgs, send)
 	case "find":
 		resp, err = findCmd(subArgs, send)
+	case "inspect":
+		resp, err = inspectCmd(subArgs, send)
 	default:
 		var params map[string]interface{}
 		params, err = buildParams(subArgs, nil)
@@ -329,6 +331,10 @@ Scene:
   find --tag X --layer Y        Tag / layer filters
   find --prefab <asset>         Instances of a specific prefab asset
   find --has-overrides          Only prefab instances with overrides
+  inspect <path>                Dump GameObject + components (Inspector view)
+  inspect <path>:Component      Show one component's serialized properties
+  inspect <path>:Comp.prop      Show a single property value
+  inspect --overrides-only      Trim to prefab-overridden values
 
 Console:
   console                       Read error & warning logs (default)
@@ -459,6 +465,34 @@ Examples:
   unity-cli find --component Rigidbody --component AudioSource
   unity-cli find --prefab Assets/Prefabs/Enemy.prefab --has-overrides
   unity-cli find --component Light --plain | xargs -I{} unity-cli inspect {}:Light
+`)
+	case "inspect":
+		fmt.Print(`Usage: unity-cli inspect <path> [options]
+
+Dump the Inspector view of whatever the path resolves to:
+  - GameObject path        → object info + every component's properties
+  - GameObject:Component   → that component's serialized properties
+  - GameObject:Comp.prop   → a single property value (drills into sub-fields
+                             with further .name segments, e.g. .position.x)
+
+Path grammar (full reference: unity-cli-reference.md):
+  World/Player                Hierarchy path
+  World/Enemy[1]              Disambiguate duplicate sibling names
+  #14352                      Resolve by Unity instance ID
+  Player:Transform            Component
+  Player:Transform.position   Property
+  Player:Transform.position.x Sub-property
+
+Options:
+  --overrides-only            Only show values overridden from the prefab
+  --json                      Structured JSON output
+
+Examples:
+  unity-cli inspect World/Player
+  unity-cli inspect World/Player:Transform
+  unity-cli inspect World/Player:Transform.position
+  unity-cli inspect World/Enemy[1]:Rigidbody.mass
+  unity-cli inspect World/Player --overrides-only --json
 `)
 	case "ls":
 		fmt.Print(`Usage: unity-cli ls [<path>] [options]
