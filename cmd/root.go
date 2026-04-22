@@ -142,6 +142,10 @@ func Execute() error {
 		resp, err = findCmd(subArgs, send)
 	case "inspect":
 		resp, err = inspectCmd(subArgs, send)
+	case "get":
+		resp, err = getCmd(subArgs, send)
+	case "set":
+		resp, err = setCmd(subArgs, send)
 	default:
 		var params map[string]interface{}
 		params, err = buildParams(subArgs, nil)
@@ -335,6 +339,11 @@ Scene:
   inspect <path>:Component      Show one component's serialized properties
   inspect <path>:Comp.prop      Show a single property value
   inspect --overrides-only      Trim to prefab-overridden values
+  get <path>:Comp.prop          Read one property value (scripting-friendly)
+  get --source                  Read prefab source value, ignoring overrides
+  set <path>:Comp.prop <value>  Write one property value (registers Undo)
+  set <path>:Comp.prop --all    Broadcast to every match (no ambiguity error)
+  get ... | set ...             Pipe values between objects
 
 Console:
   console                       Read error & warning logs (default)
@@ -465,6 +474,90 @@ Examples:
   unity-cli find --component Rigidbody --component AudioSource
   unity-cli find --prefab Assets/Prefabs/Enemy.prefab --has-overrides
   unity-cli find --component Light --plain | xargs -I{} unity-cli inspect {}:Light
+`)
+	case "get":
+		fmt.Print(`Usage: unity-cli get <path> [options]
+
+Read a single serialized-property value. The path must include both a
+component and a property, optionally drilling into sub-fields.
+
+Default output is pipe-friendly:
+  - Scalars print raw                 (3.14, true, "hello")
+  - Vectors / colors print components space-separated   (1 2 3)
+  - Object references print canonical paths
+  - Null references print "null"
+
+So 'get | set' and 'get | inspect' chains work without quoting tricks.
+
+Path:
+  Player:Transform.position          Full vector value
+  Player:Transform.position.x        Scalar sub-field
+  Enemy[1]:Rigidbody.mass            Disambiguate duplicate siblings
+  #14352:Transform.localScale        Resolve by instance ID
+
+Options:
+  --source                    Read the prefab source value instead of the
+                              (possibly overridden) instance value
+  --json                      Wrap value with path/component/type metadata
+
+Examples:
+  unity-cli get World/Player:Transform.position
+  unity-cli get World/Player:Transform.position.x
+  unity-cli get World/Player:Rigidbody.mass --json
+  unity-cli get World/Player:Transform.position --source
+  unity-cli get World/A:Transform.position | unity-cli set World/B:Transform.position
+  unity-cli get World/Enemy:AIScript.target | unity-cli inspect
+`)
+	case "set":
+		fmt.Print(`Usage: unity-cli set <path> <value>
+       unity-cli set <path> --value <value>
+       echo <value> | unity-cli set <path>
+
+Write a single serialized-property value. Goes through SerializedObject,
+so prefab overrides register and Undo works exactly like an Inspector edit.
+
+The value can be supplied as a positional, --value, or piped via stdin.
+Piped form is the target of 'get | set' round-trips.
+
+Path:
+  Same grammar as 'get' / 'inspect'. Must include :Component.property.
+
+Value (type-aware, permissive):
+  Scalars       42       3.14       true       "hello"
+  Vectors       "1 2 3"   "1,2,3"   "{"x":1,"y":2,"z":3}"   "[1,2,3]"
+  Colors        "#ff0000"   "#ff0000ff"   "1 0 0 1"   "1,0,0,1"
+  Quaternions   "0 90 0"  (Euler degrees, 3 components)
+                "0 0.7 0 0.7"  (raw, 4 components)
+  Enums         "Awake"   1
+  Object refs   "Assets/Prefabs/Enemy.prefab"
+                "#14352"
+                "World/Other/Target"    (scene path; picks the right
+                                         component type if the field
+                                         expects one)
+  Null          null   none   ""
+
+JSON-shaped values go through --params:
+  unity-cli set World/Player:Transform.position \
+    --params '{"value":{"x":1,"y":2,"z":3}}'
+
+Options:
+  --all                       Broadcast to every GameObject the path
+                              matches instead of erroring on ambiguity
+
+Examples:
+  unity-cli set World/Player:Transform.position.x 1.5
+  unity-cli set World/Player:Transform.position "1 2 3"
+  unity-cli set World/Player:Rigidbody.mass 5.0
+  unity-cli set World/Player:Renderer.material "Assets/Mats/Red.mat"
+  unity-cli set World/Enemy:AIScript.target World/Player
+  unity-cli set World/Enemy:AIScript.target null
+  unity-cli set World/Enemies/Enemy:Light.intensity 2 --all
+  unity-cli get World/A:Transform.position | unity-cli set World/B:Transform.position
+
+Notes:
+  - Composite properties (Generic / ManagedReference) must be set via
+    their leaf fields, not as a whole.
+  - The target object is marked dirty automatically.
 `)
 	case "inspect":
 		fmt.Print(`Usage: unity-cli inspect <path> [options]

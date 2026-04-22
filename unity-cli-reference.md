@@ -615,7 +615,7 @@ unity-cli inspect World/Player --json | jq '.Transform.localPosition'
 
 ### `get`
 
-🚧 **Not implemented**
+✅ **Implemented**
 
 Read a single property value. Scalar output by default, so composes with
 shell arithmetic.
@@ -644,7 +644,7 @@ unity-cli get World/Enemy:AIScript.target | unity-cli inspect
 
 ### `set`
 
-🚧 **Not implemented**
+✅ **Implemented**
 
 Write a single property value. Reads from stdin if value is omitted (enables
 piping).
@@ -657,7 +657,6 @@ unity-cli set <path> [<value>] [--all]
 - `<path>` — must resolve to a single property.
 - `<value>` — scalar literal, space-separated vector, path (for references),
   or `null`/`none` to clear. Read from stdin if omitted.
-- `--all` — broadcast to all matches when `<path>` is ambiguous.
 - For prefab instances, creates an override implicitly (same as typing in
   the Inspector).
 

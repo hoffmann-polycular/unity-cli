@@ -247,7 +247,7 @@ namespace UnityCliConnector
 				};
 			}
 
-			var assetPath = "path";// AssetDatabase.GetAssetPath(o);
+			var assetPath = AssetDatabase.GetAssetPath(o);
 			if (!string.IsNullOrEmpty(assetPath))
 			{
 				return new Dictionary<string, object>

@@ -144,6 +144,59 @@ namespace UnityCliConnector
 		}
 
 		/// <summary>
+		/// Returns every GameObject matching a parsed path, walking past
+		/// ambiguity instead of erroring on it. Each segment without an
+		/// index expands to all name-matching siblings. Used by the
+		/// <c>--all</c> broadcast modes on <c>set</c>, <c>delete</c>, etc.
+		/// </summary>
+		public static Result<List<GameObject>> ResolveGameObjectsAll(ParsedPath parsed)
+		{
+			if (parsed == null) return Result<List<GameObject>>.Error("Path is null.");
+
+			switch (parsed.Kind)
+			{
+				case PathKind.InstanceId:
+					{
+						var single = ResolveGameObject(parsed);
+						if (!single.IsSuccess) return Result<List<GameObject>>.Error(single.ErrorMessage);
+						return Result<List<GameObject>>.Success(new List<GameObject> { single.Value });
+					}
+
+				case PathKind.Scene:
+					{
+						if (parsed.Segments == null || parsed.Segments.Count == 0)
+							return Result<List<GameObject>>.Error("Scene path has no hierarchy segments.");
+
+						var frontier = FilterByName(GetSceneRoots(), parsed.Segments[0]);
+						if (frontier.Count == 0)
+							return Result<List<GameObject>>.Error(
+								$"No root object matching '{parsed.Segments[0]}'.");
+
+						for (var i = 1; i < parsed.Segments.Count; i++)
+						{
+							var seg = parsed.Segments[i];
+							var next = new List<GameObject>();
+							foreach (var parent in frontier)
+								next.AddRange(FilterByName(GetImmediateChildren(parent), seg));
+							if (next.Count == 0)
+								return Result<List<GameObject>>.Error(
+									$"No descendants matching '{seg}' beneath any candidate at depth {i}.");
+							frontier = next;
+						}
+
+						return Result<List<GameObject>>.Success(frontier);
+					}
+
+				case PathKind.Asset:
+					return Result<List<GameObject>>.Error(
+						"Asset-backed GameObject resolution is not yet implemented.");
+
+				default:
+					return Result<List<GameObject>>.Error("Unknown path kind.");
+			}
+		}
+
+		/// <summary>
 		/// Resolves a <see cref="ComponentRef"/> against a GameObject.
 		/// Returns an error when the type is unknown, absent, or when the
 		/// object has multiple matches and no index was supplied.
