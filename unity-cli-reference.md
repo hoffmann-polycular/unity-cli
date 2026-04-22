@@ -555,7 +555,7 @@ unity-cli ls -r --plain | grep Enemy
 
 ### `find`
 
-🚧 **Not implemented**
+✅ **Implemented**
 
 Search objects by name, component, tag, layer, or prefab source.
 
@@ -568,6 +568,7 @@ unity-cli find [--name <glob>] [--component <type>] [--missing <type>]
 
 **Options:**
 - `--name <glob>` — name glob match (e.g. `"Enemy*"`).
+- `--regex <regex>` — name regex match (e.g. `"Enemy_[1-5]"`).
 - `--component <type>` — only objects that have a component of this type.
 - `--missing <type>` — only objects that *lack* a component of this type.
 - `--tag <tag>` — only objects with this tag.

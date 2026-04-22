@@ -138,6 +138,8 @@ func Execute() error {
 		}
 	case "ls":
 		resp, err = lsCmd(subArgs, send)
+	case "find":
+		resp, err = findCmd(subArgs, send)
 	default:
 		var params map[string]interface{}
 		params, err = buildParams(subArgs, nil)
@@ -321,6 +323,12 @@ Scene:
   ls -r <path>                  Recurse into descendants
   ls --components <path>        Include component types per object
   ls --json | --plain           Structured / pipe-friendly output
+  find --name "Enemy*"          Search by name glob across loaded scenes
+  find --component Rigidbody    Require a component (may repeat)
+  find --missing Collider       Exclude by component (may repeat)
+  find --tag X --layer Y        Tag / layer filters
+  find --prefab <asset>         Instances of a specific prefab asset
+  find --has-overrides          Only prefab instances with overrides
 
 Console:
   console                       Read error & warning logs (default)
@@ -422,6 +430,35 @@ Examples:
   unity-cli editor play --wait
   unity-cli editor stop
   unity-cli editor refresh --compile
+`)
+	case "find":
+		fmt.Print(`Usage: unity-cli find [filters] [output options]
+
+Search GameObjects across all loaded scenes. All filters AND-combine.
+--component and --missing may be repeated.
+
+Filters:
+  --name <glob>           Name glob (e.g. "Enemy*", "Spawn?_*")
+  --component <type>      Require a component of this type (may repeat)
+  --missing <type>        Exclude objects that have this component (may repeat)
+  --tag <tag>             Match only objects with this tag
+  --layer <name>          Match only objects on this layer (layer name)
+  --prefab <assetpath>    Match only prefab-instance roots of this asset
+  --has-overrides         Only prefab instances with any override
+  --active                Only active-in-hierarchy objects
+  --inactive              Only inactive-in-hierarchy objects
+
+Output:
+  --json                  Structured JSON (jq-friendly)
+  --plain                 One canonical path per line (xargs/grep-friendly)
+  --null-delimited        \0-separated paths (xargs -0 for names with spaces)
+
+Examples:
+  unity-cli find --name "Enemy*"
+  unity-cli find --component MeshRenderer --missing Collider
+  unity-cli find --component Rigidbody --component AudioSource
+  unity-cli find --prefab Assets/Prefabs/Enemy.prefab --has-overrides
+  unity-cli find --component Light --plain | xargs -I{} unity-cli inspect {}:Light
 `)
 	case "ls":
 		fmt.Print(`Usage: unity-cli ls [<path>] [options]
