@@ -233,6 +233,12 @@ namespace UnityCliConnector
             return Result<PathSegment>.Success(new PathSegment { Name = name, Index = idx });
         }
 
+        /// <summary>
+        /// Public entry point for the <c>Type[n]</c> mini-grammar — used by
+        /// tools that take a bare component spec (e.g. <c>component remove</c>).
+        /// </summary>
+        public static Result<ComponentRef> ParseComponentSpec(string text) => ParseComponent(text);
+
         private static Result<ComponentRef> ParseComponent(string text)
         {
             var bracket = text.IndexOf('[');

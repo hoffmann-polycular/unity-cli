@@ -146,6 +146,8 @@ func Execute() error {
 		resp, err = getCmd(subArgs, send)
 	case "set":
 		resp, err = setCmd(subArgs, send)
+	case "component":
+		resp, err = componentCmd(subArgs, send)
 	default:
 		var params map[string]interface{}
 		params, err = buildParams(subArgs, nil)
@@ -344,6 +346,9 @@ Scene:
   set <path>:Comp.prop <value>  Write one property value (registers Undo)
   set <path>:Comp.prop --all    Broadcast to every match (no ambiguity error)
   get ... | set ...             Pipe values between objects
+  component list <path>         List components on a GameObject
+  component add <path> <type>   Add a component (returns canonical path)
+  component remove <path> <t>   Remove a component (use Type[n] for duplicates)
 
 Console:
   console                       Read error & warning logs (default)
@@ -474,6 +479,46 @@ Examples:
   unity-cli find --component Rigidbody --component AudioSource
   unity-cli find --prefab Assets/Prefabs/Enemy.prefab --has-overrides
   unity-cli find --component Light --plain | xargs -I{} unity-cli inspect {}:Light
+`)
+	case "component":
+		fmt.Print(`Usage: unity-cli component <list|add|remove> <path> [<type>]
+
+Add, remove, or list Components on a GameObject. Mirrors the Inspector's
+"Add Component" and context-menu Remove affordances — all writes register
+with Undo and dirty the target.
+
+Subcommands:
+  list   <path>                 Print every component on the object.
+                                Names get [n] suffixes only when the
+                                same type appears more than once.
+  add    <path> <type>          Add a component. Prints the canonical
+                                "path:Type[n]" of the new instance, ready
+                                to pipe into get / set / inspect.
+  remove <path> <type>[<n>]     Remove a component. The [n] index is
+                                required when the GameObject has more
+                                than one component of that type.
+
+Type resolution accepts simple names (Rigidbody), namespaced names
+(UnityEngine.UI.Image), or user-script class names. Same lookup as
+'find --component'.
+
+Options:
+  --json                        Structured JSON output
+
+Examples:
+  unity-cli component list World/Player
+  unity-cli component add World/Player Rigidbody
+  unity-cli component add World/Player AudioSource
+  unity-cli component remove World/Player AudioSource[1]
+  unity-cli component add World/Player Rigidbody | unity-cli set --value 5.0
+  unity-cli find --name "Enemy*" --plain | xargs -I{} unity-cli component add {} AudioSource
+
+Notes:
+  - Transform / RectTransform cannot be removed (Unity refuses).
+  - Adding a [DisallowMultipleComponent] type when one is already present
+    fails loudly.
+  - [RequireComponent] dependencies are auto-added by Unity on add, and
+    block remove until the dependent is gone.
 `)
 	case "get":
 		fmt.Print(`Usage: unity-cli get <path> [options]
