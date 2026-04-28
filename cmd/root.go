@@ -156,6 +156,8 @@ func Execute() error {
 		resp, err = deleteCmd(subArgs, send)
 	case "find-asset":
 		resp, err = findAssetCmd(subArgs, send)
+	case "prefab":
+		resp, err = prefabCmd(subArgs, send)
 	default:
 		var params map[string]interface{}
 		params, err = buildParams(subArgs, nil)
@@ -431,6 +433,15 @@ Assets:
   find-asset --path Assets/Enemies      Restrict to a folder
   find-asset --path "Assets/**/Red*"    Path glob (folder + post-filter)
 
+Prefab:
+  prefab status <path>                  Show prefab connection + override summary
+  prefab diff <path>                    Show overrides vs. source (git-style)
+  prefab apply <path>                   Apply ALL overrides to source asset
+  prefab apply <path>:Comp[.prop]       Apply overrides on one component / property
+  prefab revert <path>                  Revert ALL overrides on the instance
+  prefab revert <path>:Comp[.prop]      Revert overrides on one component / property
+  prefab create <scenepath> <asset>     Save a scene object as a new prefab
+
 Custom Tools:
   list                          List all registered tools with parameter schemas
   <name>                        Call a custom tool directly
@@ -558,6 +569,66 @@ Notes:
   - Type names are Unity class names (case sensitivity follows Unity's
     filter parser, which is generally case-insensitive).
   - --area packages searches inside Packages/, including embedded ones.
+`)
+	case "prefab":
+		fmt.Print(`Usage: unity-cli prefab <subcommand> <args...>
+
+Prefab lifecycle, override inspection, and authoring. All mutating
+subcommands run in InteractionMode.AutomatedAction (no modal dialogs).
+
+Subcommands:
+  status <path>                 Show the prefab connection for a GameObject:
+                                source asset path, asset type (Regular /
+                                Variant / Model), instance status, override
+                                counts (property mods, added / removed
+                                components, added GameObjects), and the
+                                nested-prefab chain.
+
+  diff <path>                   Show the override delta between an instance
+                                and its prefab asset, git-style:
+                                  ~ <path>:<comp>.<prop>   <from> → <to>
+                                  + <path>:<comp>          (added component)
+                                  - <path>:<comp>          (removed component)
+                                  + <child path>           (added GameObject)
+                                Default-overridden properties (Transform
+                                position, GameObject name, etc.) are filtered.
+
+  apply <path>                  Push overrides from instance back to source.
+  apply <path>:<comp>           Apply only this component's overrides.
+  apply <path>:<comp>.<prop>    Apply only this property's override.
+
+  revert <path>                 Discard overrides; pull source values onto
+                                the instance.
+  revert <path>:<comp>          Revert one component's overrides.
+  revert <path>:<comp>.<prop>   Revert one property override.
+
+  create <scenepath> <asset>    Save a scene GameObject as a new prefab
+                                asset, then connect the scene object as an
+                                instance of the new prefab. Asset path must
+                                start with 'Assets/' and the destination
+                                folder must already exist (".prefab"
+                                extension is appended if missing).
+
+Options:
+  --json                        Structured JSON output
+
+Examples:
+  unity-cli prefab status World/Enemy[0]
+  unity-cli prefab diff World/Enemy[0]
+  unity-cli prefab apply World/Enemy[0]:Rigidbody.mass
+  unity-cli prefab apply World/Enemy[0]:Rigidbody
+  unity-cli prefab revert World/Enemy[0]
+  unity-cli prefab create World/Player Assets/Prefabs/Player.prefab
+  unity-cli prefab diff World/Enemy[0] --json | jq '.entries[] | select(.op == "modify")'
+  unity-cli find --has-overrides --plain | xargs -I{} unity-cli prefab revert {}
+
+Notes:
+  - apply / revert at the instance root act on the entire instance.
+  - apply / revert with :Component target only that component's overrides.
+  - apply / revert with :Component.prop target a single property — fails
+    cleanly if the property has no override.
+  - create uses PrefabUtility.SaveAsPrefabAssetAndConnect, so the scene
+    GameObject becomes a connected instance of the new asset.
 `)
 	case "delete":
 		fmt.Print(`Usage: unity-cli delete <path> [--all]

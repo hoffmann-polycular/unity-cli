@@ -816,9 +816,11 @@ the target type is known from the destination property.
 
 ### `prefab`
 
-🚧 **Not implemented**
+✅ **Implemented** — `status`, `diff`, `apply`, `revert`, `create`.
+🚧 Not yet implemented: `unpack`, `variant`, `open`, `close`.
 
-Prefab lifecycle, overrides, and context operations.
+Prefab lifecycle, overrides, and context operations. All mutating
+subcommands run in `InteractionMode.AutomatedAction` (no modal dialogs).
 
 #### `prefab status`
 
