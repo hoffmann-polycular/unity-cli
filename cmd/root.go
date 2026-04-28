@@ -441,6 +441,10 @@ Prefab:
   prefab revert <path>                  Revert ALL overrides on the instance
   prefab revert <path>:Comp[.prop]      Revert overrides on one component / property
   prefab create <scenepath> <asset>     Save a scene object as a new prefab
+  prefab unpack <path> [--completely]   Break the prefab connection on an instance
+  prefab variant <source> <newasset>    Create a variant of an existing prefab
+  prefab open <assetpath>               Enter prefab editing mode
+  prefab close [--discard]              Exit prefab editing mode (saves by default)
 
 Custom Tools:
   list                          List all registered tools with parameter schemas
@@ -609,6 +613,32 @@ Subcommands:
                                 folder must already exist (".prefab"
                                 extension is appended if missing).
 
+  unpack <path>                 Break the prefab connection on an instance.
+                                The objects stay in place but are no longer
+                                tied to the source asset.
+    --completely                Unpack all nested prefab layers, not just
+                                the outermost. Without this, nested prefab
+                                instances inside the unpacked root remain
+                                connected.
+
+  variant <source> <newasset>   Create a prefab variant of an existing
+                                prefab asset. The variant inherits from
+                                <source> and overrides apply on top.
+                                <newasset> follows the same rules as
+                                'create' (Assets/-rooted, folder must exist,
+                                ".prefab" appended if missing).
+
+  open <assetpath>              Enter prefab editing mode for the asset.
+                                While the stage is open, ls / find /
+                                inspect / etc. resolve paths under the
+                                prefab root (just like the Hierarchy window
+                                shows only the prefab's contents).
+
+  close                         Exit prefab editing mode. Saves any
+                                pending changes back to the source asset.
+    --discard                   Exit without saving — discards in-stage
+                                edits since the last save.
+
 Options:
   --json                        Structured JSON output
 
@@ -619,6 +649,14 @@ Examples:
   unity-cli prefab apply World/Enemy[0]:Rigidbody
   unity-cli prefab revert World/Enemy[0]
   unity-cli prefab create World/Player Assets/Prefabs/Player.prefab
+  unity-cli prefab unpack World/Enemy[0]
+  unity-cli prefab unpack World/Boss --completely
+  unity-cli prefab variant Assets/Prefabs/Enemy.prefab Assets/Prefabs/EnemyElite.prefab
+  unity-cli prefab open Assets/Prefabs/Enemy.prefab
+  unity-cli ls                                    # now lists prefab contents
+  unity-cli set Enemy:Rigidbody.mass 5.0          # edit inside the prefab
+  unity-cli prefab close                          # save and return to scene
+  unity-cli prefab close --discard                # throw away changes
   unity-cli prefab diff World/Enemy[0] --json | jq '.entries[] | select(.op == "modify")'
   unity-cli find --has-overrides --plain | xargs -I{} unity-cli prefab revert {}
 
@@ -629,6 +667,10 @@ Notes:
     cleanly if the property has no override.
   - create uses PrefabUtility.SaveAsPrefabAssetAndConnect, so the scene
     GameObject becomes a connected instance of the new asset.
+  - variant uses SaveAsPrefabAsset on a temporary connected instance, so
+    the result is a true variant (not a copy).
+  - open changes Editor state — subsequent unity-cli calls in the same
+    Unity instance see the prefab stage. close restores the previous stage.
 `)
 	case "delete":
 		fmt.Print(`Usage: unity-cli delete <path> [--all]

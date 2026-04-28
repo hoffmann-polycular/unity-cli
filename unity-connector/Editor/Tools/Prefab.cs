@@ -97,9 +97,23 @@ namespace UnityCliConnector.Tools
 							?? (args != null && args.Count > 2 ? args[2]?.ToString() : null);
 						return DoCreate(path, asset, format);
 					}
+				case "unpack":
+					return DoUnpack(path, p.GetBool("completely"), format);
+				case "variant":
+					{
+						// For variant: path is the SOURCE asset, asset is the NEW asset.
+						var newAsset = p.Get("asset")
+							?? (args != null && args.Count > 2 ? args[2]?.ToString() : null);
+						return DoVariant(path, newAsset, format);
+					}
+				case "open":
+					// For open: path is the asset to open.
+					return DoOpen(path, format);
+				case "close":
+					return DoClose(p.GetBool("discard"), format);
 				default:
 					return new ErrorResponse(
-						$"Unknown prefab action '{action}'. Use: status, diff, apply, revert, create.");
+						$"Unknown prefab action '{action}'. Use: status, diff, apply, revert, create, unpack, variant, open, close.");
 			}
 		}
 
@@ -449,6 +463,224 @@ namespace UnityCliConnector.Tools
 			};
 			if (format == "json") return new SuccessResponse("", data);
 			return new SuccessResponse(normalized, data);
+		}
+
+		// =========================================================================
+		// unpack
+		// =========================================================================
+
+		private static object DoUnpack(string path, bool completely, string format)
+		{
+			if (string.IsNullOrWhiteSpace(path))
+				return new ErrorResponse("prefab unpack requires a GameObject path.");
+
+			var go = ResolveScene(path, out var err);
+			if (go == null) return new ErrorResponse(err);
+
+			var instanceRoot = PrefabUtility.GetNearestPrefabInstanceRoot(go);
+			if (instanceRoot == null)
+				return new ErrorResponse(
+					$"'{PathResolver.GetCanonicalPath(go)}' is not a prefab instance.");
+
+			// Capture asset path BEFORE unpack — afterwards it's gone.
+			var wasAsset = PrefabUtility.GetPrefabAssetPathOfNearestInstanceRoot(go);
+			var rootPath = PathResolver.GetCanonicalPath(instanceRoot);
+			var mode = completely
+				? PrefabUnpackMode.Completely
+				: PrefabUnpackMode.OutermostRoot;
+
+			try
+			{
+				PrefabUtility.UnpackPrefabInstance(instanceRoot, mode, InteractionMode.AutomatedAction);
+			}
+			catch (Exception ex)
+			{
+				return new ErrorResponse($"prefab unpack failed: {ex.Message}");
+			}
+
+			EditorUtility.SetDirty(instanceRoot);
+
+			var data = new Dictionary<string, object>
+			{
+				["path"] = rootPath,
+				["wasAsset"] = wasAsset,
+				["mode"] = mode.ToString(),
+			};
+			if (format == "json") return new SuccessResponse("", data);
+			var modeNote = completely ? " (all nested layers)" : "";
+			return new SuccessResponse(
+				$"Unpacked {rootPath}{modeNote} (was instance of {wasAsset}).", data);
+		}
+
+		// =========================================================================
+		// variant
+		// =========================================================================
+
+		private static object DoVariant(string sourceAssetPath, string newAssetPath, string format)
+		{
+			if (string.IsNullOrWhiteSpace(sourceAssetPath))
+				return new ErrorResponse("prefab variant requires a source asset path.");
+			if (string.IsNullOrWhiteSpace(newAssetPath))
+				return new ErrorResponse("prefab variant requires a target asset path.");
+
+			var source = AssetDatabase.LoadAssetAtPath<GameObject>(sourceAssetPath);
+			if (source == null)
+				return new ErrorResponse($"Source prefab not found at '{sourceAssetPath}'.");
+
+			var normalized = newAssetPath.Replace('\\', '/');
+			if (!normalized.StartsWith("Assets/", StringComparison.Ordinal))
+				return new ErrorResponse(
+					$"Target asset path must start with 'Assets/' (got '{newAssetPath}').");
+			if (!normalized.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase))
+				normalized += ".prefab";
+
+			var folder = Path.GetDirectoryName(normalized)?.Replace('\\', '/');
+			if (!string.IsNullOrEmpty(folder) && !AssetDatabase.IsValidFolder(folder))
+				return new ErrorResponse($"Folder '{folder}' does not exist. Create it first.");
+
+			// Trick: SaveAsPrefabAsset on a *connected* instance creates a variant
+			// (the instance keeps a reference to the source asset). So we
+			// instantiate the source temporarily, save, then destroy.
+			GameObject tempInstance = null;
+			GameObject variant;
+			try
+			{
+				tempInstance = (GameObject)PrefabUtility.InstantiatePrefab(source);
+				if (tempInstance == null)
+					return new ErrorResponse(
+						$"Failed to instantiate source prefab '{sourceAssetPath}'.");
+
+				variant = PrefabUtility.SaveAsPrefabAsset(tempInstance, normalized);
+				if (variant == null)
+					return new ErrorResponse($"Failed to save variant at '{normalized}'.");
+			}
+			catch (Exception ex)
+			{
+				return new ErrorResponse($"prefab variant failed: {ex.Message}");
+			}
+			finally
+			{
+				if (tempInstance != null) UnityEngine.Object.DestroyImmediate(tempInstance);
+			}
+
+			AssetDatabase.SaveAssets();
+
+			var data = new Dictionary<string, object>
+			{
+				["source"] = sourceAssetPath,
+				["asset"] = normalized,
+				["assetType"] = PrefabUtility.GetPrefabAssetType(variant).ToString(),
+			};
+			if (format == "json") return new SuccessResponse("", data);
+			return new SuccessResponse(normalized, data);
+		}
+
+		// =========================================================================
+		// open
+		// =========================================================================
+
+		private static object DoOpen(string assetPath, string format)
+		{
+			if (string.IsNullOrWhiteSpace(assetPath))
+				return new ErrorResponse("prefab open requires a prefab asset path.");
+
+			var asset = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
+			if (asset == null)
+				return new ErrorResponse($"Prefab not found at '{assetPath}'.");
+
+			UnityEditor.SceneManagement.PrefabStage stage;
+			try
+			{
+				stage = UnityEditor.SceneManagement.PrefabStageUtility.OpenPrefab(assetPath);
+			}
+			catch (Exception ex)
+			{
+				return new ErrorResponse($"Failed to open prefab stage: {ex.Message}");
+			}
+
+			if (stage == null || stage.prefabContentsRoot == null)
+				return new ErrorResponse($"Prefab stage failed to open for '{assetPath}'.");
+
+			var data = new Dictionary<string, object>
+			{
+				["asset"] = assetPath,
+				["root"] = stage.prefabContentsRoot.name,
+			};
+			if (format == "json") return new SuccessResponse("", data);
+			return new SuccessResponse(
+				$"Opened prefab stage: {assetPath}\n  Paths now resolve under '{stage.prefabContentsRoot.name}'.",
+				data);
+		}
+
+		// =========================================================================
+		// close
+		// =========================================================================
+
+		private static object DoClose(bool discard, string format)
+		{
+			var stage = UnityEditor.SceneManagement.PrefabStageUtility.GetCurrentPrefabStage();
+			if (stage == null)
+				return new ErrorResponse("No prefab stage is currently open.");
+
+			var assetPath = stage.assetPath;
+			var rootName = stage.prefabContentsRoot != null ? stage.prefabContentsRoot.name : "";
+
+			try
+			{
+				if (discard)
+				{
+					// Suppress the "save changes?" prompt by clearing the stage's
+					// dirty flag before returning to the main stage. The clearing
+					// API is internal in older Unity versions, so we try the
+					// public ClearDirtiness() first and fall back to reflection.
+					ClearStageDirtiness(stage);
+				}
+				else if (stage.prefabContentsRoot != null)
+				{
+					// Save changes back to the asset.
+					PrefabUtility.SaveAsPrefabAsset(stage.prefabContentsRoot, assetPath);
+					AssetDatabase.SaveAssets();
+				}
+
+				UnityEditor.SceneManagement.StageUtility.GoToMainStage();
+			}
+			catch (Exception ex)
+			{
+				return new ErrorResponse($"prefab close failed: {ex.Message}");
+			}
+
+			var data = new Dictionary<string, object>
+			{
+				["asset"] = assetPath,
+				["root"] = rootName,
+				["saved"] = !discard,
+			};
+			if (format == "json") return new SuccessResponse("", data);
+			var note = discard ? "discarded changes" : "saved";
+			return new SuccessResponse($"Closed prefab stage ({note}): {assetPath}", data);
+		}
+
+		// PrefabStage.ClearDirtiness is public in 2022.1+, internal earlier.
+		// Reflection lets us run on either without a compile-time dependency.
+		private static void ClearStageDirtiness(UnityEditor.SceneManagement.PrefabStage stage)
+		{
+			if (stage == null) return;
+			var clear = typeof(UnityEditor.SceneManagement.PrefabStage).GetMethod(
+				"ClearDirtiness",
+				System.Reflection.BindingFlags.Instance
+				| System.Reflection.BindingFlags.Public
+				| System.Reflection.BindingFlags.NonPublic);
+			if (clear != null)
+			{
+				clear.Invoke(stage, null);
+				return;
+			}
+			// Fallback: clear dirty flag on the underlying scene via internal API.
+			var clearScene = typeof(UnityEditor.SceneManagement.EditorSceneManager).GetMethod(
+				"ClearSceneDirtiness",
+				System.Reflection.BindingFlags.Static
+				| System.Reflection.BindingFlags.NonPublic);
+			if (clearScene != null) clearScene.Invoke(null, new object[] { stage.scene });
 		}
 
 		// =========================================================================

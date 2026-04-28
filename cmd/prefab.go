@@ -35,18 +35,22 @@ import (
 //
 // Layouts (per unity-cli-reference.md §prefab):
 //
-//	prefab status <path>
-//	prefab diff   <path>
-//	prefab apply  <path>[:Component[.prop]]
-//	prefab revert <path>[:Component[.prop]]
-//	prefab create <scenepath> <assetpath>
+//	prefab status  <path>
+//	prefab diff    <path>
+//	prefab apply   <path>[:Component[.prop]]
+//	prefab revert  <path>[:Component[.prop]]
+//	prefab create  <scenepath> <assetpath>
+//	prefab unpack  <path> [--completely]
+//	prefab variant <sourceassetpath> <newassetpath>
+//	prefab open    <assetpath>
+//	prefab close   [--discard]
 //
 // Translates to named params (action / path / asset) so the C# tool's
 // error messages stay unambiguous.
 func prefabCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	if len(args) == 0 {
 		return nil, fmt.Errorf(
-			"usage: unity-cli prefab <status|diff|apply|revert|create> <args...>")
+			"usage: unity-cli prefab <status|diff|apply|revert|create|unpack|variant|open|close> <args...>")
 	}
 
 	action := args[0]
@@ -109,9 +113,34 @@ func prefabCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 		}
 		return sendPrefab(send, "create", positionals[0], positionals[1], passthrough)
 
+	case "unpack":
+		if len(positionals) < 1 {
+			return nil, fmt.Errorf(
+				"usage: unity-cli prefab unpack <path> [--completely]")
+		}
+		return sendPrefab(send, "unpack", positionals[0], "", passthrough)
+
+	case "variant":
+		if len(positionals) < 2 {
+			return nil, fmt.Errorf(
+				"usage: unity-cli prefab variant <sourceassetpath> <newassetpath>")
+		}
+		// Reuse path/asset as (source, new) — matches create's parameter shape.
+		return sendPrefab(send, "variant", positionals[0], positionals[1], passthrough)
+
+	case "open":
+		if len(positionals) < 1 {
+			return nil, fmt.Errorf("usage: unity-cli prefab open <assetpath>")
+		}
+		return sendPrefab(send, "open", positionals[0], "", passthrough)
+
+	case "close":
+		// No positionals required. --discard is a passthrough flag.
+		return sendPrefab(send, "close", "", "", passthrough)
+
 	default:
 		return nil, fmt.Errorf(
-			"unknown prefab action: %s\nAvailable: status, diff, apply, revert, create",
+			"unknown prefab action: %s\nAvailable: status, diff, apply, revert, create, unpack, variant, open, close",
 			action)
 	}
 }

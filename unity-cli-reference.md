@@ -816,11 +816,15 @@ the target type is known from the destination property.
 
 ### `prefab`
 
-✅ **Implemented** — `status`, `diff`, `apply`, `revert`, `create`.
-🚧 Not yet implemented: `unpack`, `variant`, `open`, `close`.
+✅ **Implemented** — `status`, `diff`, `apply`, `revert`, `create`, `unpack`,
+`variant`, `open`, `close`.
 
 Prefab lifecycle, overrides, and context operations. All mutating
 subcommands run in `InteractionMode.AutomatedAction` (no modal dialogs).
+
+While a prefab stage is open (via `prefab open`), `ls`, `find`, `inspect`,
+and other path-based tools resolve under the prefab root — matching what
+the Hierarchy window shows.
 
 #### `prefab status`
 
@@ -911,9 +915,13 @@ unity-cli prefab diff World/Enemy[0]
 unity-cli prefab apply World/Enemy[0]:Rigidbody.mass
 unity-cli prefab revert World/Enemy[0]
 unity-cli prefab create World/Player Assets/Prefabs/Player.prefab
+unity-cli prefab unpack World/Enemy[0]
+unity-cli prefab unpack World/Boss --completely
+unity-cli prefab variant Assets/Prefabs/Enemy.prefab Assets/Prefabs/EnemyElite.prefab
 unity-cli prefab open Assets/Prefabs/Enemy.prefab
-# ... edits inside prefab ...
+# ... edits inside prefab; ls / find / inspect resolve under the prefab root ...
 unity-cli prefab close
+unity-cli prefab close --discard      # throw away unsaved changes
 ```
 
 ---

@@ -48,6 +48,12 @@ namespace UnityCliConnector
 		/// </summary>
 		public static List<GameObject> GetSceneRoots()
 		{
+			// When a prefab stage is open, the Hierarchy window shows ONLY the
+			// prefab's contents — regular scenes are hidden. Mirror that here so
+			// `ls` / `find` / `inspect` / etc. operate on what the user sees.
+			var prefabRoots = GetPrefabRoots();
+			if (prefabRoots.Count > 0) return prefabRoots;
+
 			var roots = new List<GameObject>();
 			for (var i = 0; i < SceneManager.sceneCount; i++)
 			{
