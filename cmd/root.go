@@ -150,6 +150,8 @@ func Execute() error {
 		resp, err = componentCmd(subArgs, send)
 	case "select":
 		resp, err = selectCmd(subArgs, send)
+	case "create":
+		resp, err = createCmd(subArgs, send)
 	default:
 		var params map[string]interface{}
 		params, err = buildParams(subArgs, nil)
@@ -355,6 +357,9 @@ Scene:
   select --get                  Print current Selection (one path per line)
   select --add <path>           Add to Selection
   select --clear                Deselect all
+  create Empty <p>/<name>       Create empty GameObject
+  create Cube <p>/<name>        Create primitive (Cube, Sphere, ...)
+  create --prefab <asset> <p>   Instantiate prefab instance
 
 Console:
   console                       Read error & warning logs (default)
@@ -485,6 +490,44 @@ Examples:
   unity-cli find --component Rigidbody --component AudioSource
   unity-cli find --prefab Assets/Prefabs/Enemy.prefab --has-overrides
   unity-cli find --component Light --plain | xargs -I{} unity-cli inspect {}:Light
+`)
+	case "create":
+		fmt.Print(`Usage: unity-cli create <type> <parentpath>/<name>
+       unity-cli create --prefab <assetpath> <parentpath>/<name>
+
+Create a new GameObject, primitive, or prefab instance. Returns the
+canonical path of the created object, enabling pipes to set, component
+add, select, or inspect.
+
+All creations register with Undo so the Editor's undo stack records them.
+
+Types (for non-prefab creation):
+  Empty                       An empty GameObject (no components)
+  Cube, Sphere, Capsule,
+  Cylinder, Plane, Quad       Primitives (with mesh, collider, materials)
+
+Prefabs:
+  --prefab <assetpath>        Instantiate a prefab asset. Respects the
+                              prefab hierarchy and override settings.
+
+Path format:
+  <parentpath>/<name>         Parent must exist. Name is the new object's
+                              display name. Can be nested: World/Enemies/Foo
+                              creates Foo as a child of Enemies.
+
+Examples:
+  unity-cli create Empty World/Enemies/SpawnPoint
+  unity-cli create Cube World/Level/Platform
+  unity-cli create Sphere World/Sky/Sun
+  unity-cli create --prefab Assets/Prefabs/Enemy.prefab World/Enemies/Enemy_01
+  unity-cli create Quad World/UI/Canvas/Background | unity-cli set --value "1 1 1"
+  unity-cli create Empty World/Parent | xargs -I{} unity-cli component add {} Rigidbody
+
+Notes:
+  - Primitives created with GameObject.CreatePrimitive() include a default
+    Collider and Material. Remove or modify as needed with 'component remove'.
+  - Parent path must exist; create won't auto-create intermediate parents.
+  - Object is created at the parent's position/rotation/scale.
 `)
 	case "select":
 		fmt.Print(`Usage: unity-cli select <path>
