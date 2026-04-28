@@ -152,6 +152,8 @@ func Execute() error {
 		resp, err = selectCmd(subArgs, send)
 	case "create":
 		resp, err = createCmd(subArgs, send)
+	case "delete":
+		resp, err = deleteCmd(subArgs, send)
 	default:
 		var params map[string]interface{}
 		params, err = buildParams(subArgs, nil)
@@ -360,6 +362,9 @@ Scene:
   create Empty <p>/<name>       Create empty GameObject
   create Cube <p>/<name>        Create primitive (Cube, Sphere, ...)
   create --prefab <asset> <p>   Instantiate prefab instance
+  delete <path>                 Destroy a GameObject and its children
+  delete <path> --all           Destroy all matches (no ambiguity error)
+  find ... --plain | delete     Batch delete via stdin (one path per line)
 
 Console:
   console                       Read error & warning logs (default)
@@ -490,6 +495,39 @@ Examples:
   unity-cli find --component Rigidbody --component AudioSource
   unity-cli find --prefab Assets/Prefabs/Enemy.prefab --has-overrides
   unity-cli find --component Light --plain | xargs -I{} unity-cli inspect {}:Light
+`)
+	case "delete":
+		fmt.Print(`Usage: unity-cli delete <path> [--all]
+       echo <path> | unity-cli delete
+       find ... --plain | unity-cli delete
+
+Destroy a GameObject and its children. Supports single deletions, ambiguous
+path resolution via --all, and batch deletion from stdin.
+
+All deletions register with Undo so the Editor's undo stack records them.
+
+Modes:
+  delete <path>               Destroy a single object (error if path is ambiguous).
+  delete <path> --all         Destroy all GameObjects matching an ambiguous path.
+  delete (stdin)              Batch mode: read paths from stdin (one per line)
+                              and delete each.
+
+Batch mode:
+  Works with find's --plain output or any tool emitting canonical paths.
+  Lines are trimmed and empty lines are skipped.
+
+Examples:
+  unity-cli delete World/Enemies/OldSpawn
+  unity-cli delete World/Temp --all
+  unity-cli find --name "Temp_*" --plain | unity-cli delete
+  unity-cli find --name "Spawn*" --plain | xargs -I{} unity-cli delete {} --all
+  unity-cli ls World/Enemies --plain | unity-cli delete
+
+Notes:
+  - Destroying a GameObject automatically destroys all its children.
+  - Attempting to delete a non-existent path is an error (even in batch mode).
+  - In batch mode, failures on one path do not halt processing of others;
+    the response reports both deleted and failed counts.
 `)
 	case "create":
 		fmt.Print(`Usage: unity-cli create <type> <parentpath>/<name>

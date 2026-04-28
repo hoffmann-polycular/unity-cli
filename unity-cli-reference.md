@@ -757,7 +757,7 @@ unity-cli create --prefab Assets/Prefabs/Enemy.prefab World/Enemies/Enemy_01
 
 ### `delete`
 
-🚧 **Not implemented**
+✅ **Implemented**
 
 Destroy a GameObject (and its children).
 
