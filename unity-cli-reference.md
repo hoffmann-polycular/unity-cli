@@ -674,7 +674,7 @@ unity-cli get World/A:Transform.position | unity-cli set World/B:Transform.posit
 
 ### `component`
 
-🚧 **Not implemented**
+✅ **Implemented**
 
 Add, remove, or list components on a GameObject.
 
@@ -700,7 +700,7 @@ unity-cli component remove World/Player AudioSource[1]
 
 ### `select`
 
-🚧 **Not implemented**
+✅ **Implemented**
 
 Get or set the Editor's current Selection. The bridge between the terminal
 and the Hierarchy/Inspector windows.
@@ -728,7 +728,7 @@ unity-cli find --component Light --plain | head -1 | unity-cli select
 
 ### `create`
 
-🚧 **Not implemented**
+✅ **Implemented**
 
 Create a new GameObject, primitive, or prefab instance.
 
