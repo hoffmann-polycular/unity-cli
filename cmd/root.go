@@ -148,6 +148,8 @@ func Execute() error {
 		resp, err = setCmd(subArgs, send)
 	case "component":
 		resp, err = componentCmd(subArgs, send)
+	case "select":
+		resp, err = selectCmd(subArgs, send)
 	default:
 		var params map[string]interface{}
 		params, err = buildParams(subArgs, nil)
@@ -349,6 +351,10 @@ Scene:
   component list <path>         List components on a GameObject
   component add <path> <type>   Add a component (returns canonical path)
   component remove <path> <t>   Remove a component (use Type[n] for duplicates)
+  select <path>                 Set Editor Selection (bridge to Hierarchy)
+  select --get                  Print current Selection (one path per line)
+  select --add <path>           Add to Selection
+  select --clear                Deselect all
 
 Console:
   console                       Read error & warning logs (default)
@@ -479,6 +485,43 @@ Examples:
   unity-cli find --component Rigidbody --component AudioSource
   unity-cli find --prefab Assets/Prefabs/Enemy.prefab --has-overrides
   unity-cli find --component Light --plain | xargs -I{} unity-cli inspect {}:Light
+`)
+	case "select":
+		fmt.Print(`Usage: unity-cli select <path>
+       unity-cli select --get
+       unity-cli select --add <path>
+       unity-cli select --clear
+       echo <path> | unity-cli select
+
+Bridge between the Editor's Selection (Hierarchy/Inspector highlight) and
+the terminal. Enables Hierarchy-driven workflows and visual feedback from
+CLI commands.
+
+Modes:
+  select <path>               Set Editor selection to this GameObject only.
+  select --get                Print all currently selected objects' paths
+                              (one per line). Empty when nothing selected.
+  select --add <path>         Add a GameObject to the current selection
+                              (does not deselect others).
+  select --clear              Deselect everything (clear selection).
+
+Stdin piping works when no positional path is supplied. Example:
+  find --component Light --plain | head -1 | select
+This selects the first Light in the scene.
+
+Examples:
+  unity-cli select World/Player
+  unity-cli select --get
+  unity-cli select --get | unity-cli inspect
+  unity-cli select --add World/Enemy
+  unity-cli select --clear
+  unity-cli find --name "Spawn*" --plain | xargs -I{} unity-cli select --add {}
+  unity-cli find --component Light --plain | head -1 | unity-cli select
+
+Notes:
+  - Selection updates are reflected immediately in the Hierarchy window.
+  - Piping works with find, component list (via post-processing), or any
+    command that outputs canonical paths.
 `)
 	case "component":
 		fmt.Print(`Usage: unity-cli component <list|add|remove> <path> [<type>]
