@@ -779,26 +779,34 @@ unity-cli find --name "Temp_*" --plain | xargs -I{} unity-cli delete {}
 
 ### `find-asset`
 
-🚧 **Not implemented**
+✅ **Implemented**
 
-Search the project asset database.
+Search the project asset database. Wraps Unity's `AssetDatabase.FindAssets`.
 
 ```
-unity-cli find-asset [<name>] [--type <type>] [--path <glob>]
+unity-cli find-asset [<name>] [--type <type>] [--label <label>]
+                     [--path <folder|glob>] [--area <all|assets|packages>]
                      [--json|--plain|--null-delimited]
 ```
 
 **Options:**
-- `<name>` — name glob (optional).
-- `--type <type>` — asset type filter (e.g. `Material`, `Mesh`, `Prefab`,
-  `ScriptableObject`).
-- `--path <glob>` — restrict to matching asset paths.
+- `<name>` — bare term is a partial filename match (Unity's default name
+  matching). Add `*` or `?` to switch to glob mode automatically.
+- `--type <type>` — asset type filter (Unity's `t:`); e.g. `Material`,
+  `Mesh`, `Prefab`, `ScriptableObject`, `Texture2D`.
+- `--label <label>` — asset label filter (Unity's `l:`).
+- `--path <spec>` — folder restriction. Plain folders flow into
+  `searchInFolders`; path globs (with `*`/`?`) extract the folder prefix
+  for `searchInFolders` and post-filter the full asset path.
+- `--area <area>` — search area: `all` (default), `assets`, or `packages`
+  (Unity's `a:`).
 
 **Examples:**
 ```bash
 unity-cli find-asset "Metal"
-unity-cli find-asset "Metal" --type Material
-unity-cli find-asset --type Prefab --path "Assets/Enemies/*"
+unity-cli find-asset "Metal*" --type Material
+unity-cli find-asset --type Prefab --path Assets/Enemies
+unity-cli find-asset --path "Assets/**/Red*.mat" --json
 ```
 
 `set` also accepts `--find <name> --type <type>` inline as a shortcut when

@@ -154,6 +154,8 @@ func Execute() error {
 		resp, err = createCmd(subArgs, send)
 	case "delete":
 		resp, err = deleteCmd(subArgs, send)
+	case "find-asset":
+		resp, err = findAssetCmd(subArgs, send)
 	default:
 		var params map[string]interface{}
 		params, err = buildParams(subArgs, nil)
@@ -421,6 +423,14 @@ Profiler:
   profiler status                Show profiler state
   profiler clear                 Clear all captured frames
 
+Assets:
+  find-asset [<name>]                   Search project assets (partial filename match)
+  find-asset "Metal*"                   Wildcard glob (auto-detected)
+  find-asset --type Material            Filter by asset type
+  find-asset --label MyLabel            Filter by asset label
+  find-asset --path Assets/Enemies      Restrict to a folder
+  find-asset --path "Assets/**/Red*"    Path glob (folder + post-filter)
+
 Custom Tools:
   list                          List all registered tools with parameter schemas
   <name>                        Call a custom tool directly
@@ -495,6 +505,59 @@ Examples:
   unity-cli find --component Rigidbody --component AudioSource
   unity-cli find --prefab Assets/Prefabs/Enemy.prefab --has-overrides
   unity-cli find --component Light --plain | xargs -I{} unity-cli inspect {}:Light
+`)
+	case "find-asset":
+		fmt.Print(`Usage: unity-cli find-asset [<name>] [--type <type>] [--label <label>]
+                              [--path <folder|glob>] [--area <all|assets|packages>]
+                              [--json|--plain|--null-delimited]
+
+Search the project asset database. Wraps Unity's AssetDatabase.FindAssets.
+All filters AND-combine: only assets matching every specified filter are
+returned.
+
+Filters:
+  <name>          Asset name. Bare term is a partial filename match
+                  (case-insensitive), per Unity's filter syntax. Add
+                  wildcards (* or ?) to switch to glob mode automatically.
+                  Optional; first positional argument.
+                    "Metal"   → matches "Metal", "MetalRed", "OldMetal"
+                    "Metal*"  → matches names starting with "Metal"
+  --type <type>   Asset type filter (Unity's t: prefix). Examples:
+                  Material, Mesh, Prefab, ScriptableObject, Texture2D,
+                  AnimationClip, Shader, Scene.
+  --label <label> Asset label filter (Unity's l: prefix). Matches the
+                  labels assigned in the Inspector.
+  --path <spec>   Restrict by folder. Plain folder paths are passed to
+                  AssetDatabase.FindAssets's searchInFolders parameter for
+                  cheap scope restriction. Path globs (with * or ?) extract
+                  the folder prefix for searchInFolders, then post-filter
+                  the full asset path:
+                    "Assets/Enemies"        → folder restriction
+                    "Assets/Enemies/*"      → folder restriction
+                    "Assets/**/Red*.mat"    → folder + glob post-filter
+  --area <area>   Search area: all (default), assets, or packages.
+
+Output:
+  --json                      Structured array of {path, name, type}
+  --plain                     One asset path per line (xargs/grep-friendly)
+  --null-delimited            Null-separated paths (xargs -0 compatible)
+  (none)                      Human-readable (one per line, default)
+
+Examples:
+  unity-cli find-asset "Metal"
+  unity-cli find-asset "Metal*" --type Material
+  unity-cli find-asset --type Prefab --path Assets/Enemies
+  unity-cli find-asset --type Texture2D --label Hero --plain
+  unity-cli find-asset --path "Assets/**/Red*" --json
+  unity-cli find-asset --type Prefab --plain | xargs -I{} unity-cli inspect {}
+
+Notes:
+  - Per Unity's docs, there is no path: filter prefix; folder restriction
+    flows through the searchInFolders parameter instead.
+  - Bare name terms do partial filename matching; use *, ? for true globs.
+  - Type names are Unity class names (case sensitivity follows Unity's
+    filter parser, which is generally case-insensitive).
+  - --area packages searches inside Packages/, including embedded ones.
 `)
 	case "delete":
 		fmt.Print(`Usage: unity-cli delete <path> [--all]
