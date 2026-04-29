@@ -159,9 +159,9 @@ func computeCandidates(idx int, words []string, current string) []string {
 
 var topLevelCommands = []string{
 	"editor", "test", "exec", "ls", "find", "inspect", "get", "set",
-	"component", "select", "create", "delete", "cp", "mv", "find-asset",
-	"prefab", "console", "menu", "screenshot", "reserialize", "profiler",
-	"status", "list", "update", "version", "help", "completion",
+	"component", "select", "create", "delete", "cp", "mv", "reorder",
+	"find-asset", "prefab", "console", "menu", "screenshot", "reserialize",
+	"profiler", "status", "list", "update", "version", "help", "completion",
 }
 
 var subcommands = map[string][]string{
@@ -170,7 +170,7 @@ var subcommands = map[string][]string{
 	"component":  {"list", "add", "remove"},
 	"profiler":   {"hierarchy", "enable", "disable", "status", "clear"},
 	"completion": {"bash", "zsh", "fish", "powershell"},
-	"help":       {"editor", "ls", "find", "inspect", "get", "set", "component", "select", "create", "delete", "cp", "mv", "find-asset", "prefab", "console", "menu", "exec", "screenshot", "reserialize", "profiler", "test", "status", "list", "update", "custom-tools", "setup"},
+	"help":       {"editor", "ls", "find", "inspect", "get", "set", "component", "select", "create", "delete", "cp", "mv", "reorder", "find-asset", "prefab", "console", "menu", "exec", "screenshot", "reserialize", "profiler", "test", "status", "list", "update", "custom-tools", "setup"},
 }
 
 var primitiveTypes = []string{
@@ -225,6 +225,7 @@ var commandFlags = map[string][]string{
 	"delete":     {"--all"},
 	"cp":         {"--depth", "--auto-suffix"},
 	"mv":         {},
+	"reorder":    {"--index", "--first", "--last", "--up", "--down", "--before", "--after"},
 	"console":    {"--lines", "--type", "--stacktrace", "--clear"},
 	"screenshot": {"--view", "--width", "--height", "--output_path"},
 	"test":       {"--mode", "--filter"},
@@ -311,6 +312,10 @@ func positionalCandidates(cmd string, idx int, words []string, current string) [
 		if posIdx == 1 {
 			return queryUnity("scene-or-root", current)
 		}
+	case "reorder":
+		if posIdx == 0 {
+			return queryUnity("scene", current)
+		}
 	case "component":
 		// component <list|add|remove> <path> [<type>]
 		if posIdx == 0 { // path (after subcommand at words[1])
@@ -396,6 +401,7 @@ var knownBooleanFlags = map[string]bool{
 	"--get": true, "--clear": true, "--wait": true, "--compile": true,
 	"--check": true, "--completely": true, "--discard": true,
 	"--auto-suffix": true, "--help": true,
+	"--first": true, "--last": true,
 }
 
 func isKnownBooleanFlag(flag string) bool {

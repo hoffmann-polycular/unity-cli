@@ -162,6 +162,8 @@ func Execute() error {
 		resp, err = cpCmd(subArgs, send)
 	case "mv":
 		resp, err = mvCmd(subArgs, send)
+	case "reorder":
+		resp, err = reorderCmd(subArgs, send)
 	case "find-asset":
 		resp, err = findAssetCmd(subArgs, send)
 	case "prefab":
@@ -385,6 +387,11 @@ Scene:
   mv <src> <parent>/<name>      Move/rename a GameObject (reparent + rename)
   mv <src> <parent>/            Reparent, keep current name
   mv <src> /<name>              Move to the scene root (no parent)
+  reorder <path> --index N      Set sibling position (0-based)
+  reorder <path> --first|--last Move to first/last among siblings
+  reorder <path> --up|--down N  Shift up/down by N (default 1)
+  reorder <path> --before|--after <name>   Insert relative to named sibling
+  reorder <path>:Comp --up      Reorder a component on its GameObject
 
 Console:
   console                       Read error & warning logs (default)
@@ -845,6 +852,49 @@ Examples:
   unity-cli mv World/Player /                                # to scene root, keep name
   unity-cli find --name "Temp_*" --plain | \
       xargs -I{} unity-cli mv {} World/Trash/
+`)
+	case "reorder":
+		fmt.Print(`Usage: unity-cli reorder <path> <op>
+
+Reorder a GameObject among its siblings, or a Component on its GameObject.
+Mode is chosen by the path:
+  - Plain hierarchy path        → reorder among siblings (Transform sibling index)
+  - Path with :Component suffix → reorder the component on its GameObject
+
+Operations (mutually exclusive — pick exactly one):
+  --index <N>            Absolute 0-based position. Clamped to valid range.
+  --first                Move to first position.
+  --last                 Move to last position.
+  --up [N]               Shift up by N (default 1). Clamped to range.
+  --down [N]             Shift down by N (default 1). Clamped to range.
+  --before <name>        Insert immediately before the sibling/component
+                         with this name (sibling GameObject name, or
+                         component type name like "Rigidbody").
+  --after <name>         Insert immediately after.
+
+Behavior:
+  - Sibling reorder uses Transform.SetSiblingIndex; one Undo entry.
+  - Component reorder uses ComponentUtility.MoveComponentUp/Down — Unity's
+    only public API for this — so absolute targets are reached by stepping.
+  - Transform / RectTransform cannot be reordered (always at index 0).
+  - For sibling-name collisions, --before/--after match the first sibling
+    with that name. Use --index for full disambiguation.
+  - Out-of-range targets are clamped, not errors. A no-op (already at the
+    target index) returns success with status="noop".
+
+Examples:
+  unity-cli reorder UI/Button --first
+  unity-cli reorder UI/Button --last
+  unity-cli reorder UI/Button --index 2
+  unity-cli reorder UI/Button --up
+  unity-cli reorder UI/Button --down 3
+  unity-cli reorder UI/Button --before Label
+  unity-cli reorder UI/Button --after Background
+
+  # Component reorder
+  unity-cli reorder World/Player:Rigidbody --up
+  unity-cli reorder World/Player:AudioSource --first
+  unity-cli reorder World/Player:Collider --before Rigidbody
 `)
 	case "select":
 		fmt.Print(`Usage: unity-cli select <path>

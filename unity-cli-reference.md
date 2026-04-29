@@ -40,6 +40,7 @@ tools (pipes, `jq`, `xargs`, `grep`, `awk`).
     - [delete](#delete)
     - [cp](#cp)
     - [mv](#mv)
+    - [reorder](#reorder)
     - [find-asset](#find-asset)
     - [prefab](#prefab)
 - [Common Usage Examples](#common-usage-examples)
@@ -984,6 +985,84 @@ unity-cli mv World/Player /
 # Batch reparent every "Temp_*" under World/Trash/
 unity-cli find --name "Temp_*" --plain | \
     xargs -I{} unity-cli mv {} World/Trash/
+```
+
+---
+
+### `reorder`
+
+✅ **Implemented**
+
+Reorder a GameObject among its siblings, or a Component on its GameObject.
+Mirrors right-click → Move Up / Move Down in the Hierarchy and the Inspector
+context menu's component reordering — sibling order matters for canvas
+draw order, execution order in some systems, and visual hierarchy clarity.
+
+```
+unity-cli reorder <path> <op>
+```
+
+**Mode is chosen by the path:**
+
+| Path form                     | Mode               |
+|-------------------------------|--------------------|
+| `World/Player`                | sibling reorder    |
+| `World/Player:Rigidbody`      | component reorder  |
+
+**Operations** (mutually exclusive — pick exactly one):
+
+| Flag                  | Meaning                                                              |
+|-----------------------|----------------------------------------------------------------------|
+| `--index <N>`         | Absolute 0-based position. Clamped to `[0, count-1]`.                |
+| `--first`             | Move to first.                                                       |
+| `--last`              | Move to last.                                                        |
+| `--up [N]`            | Shift up by `N` (default 1). Clamped to range.                       |
+| `--down [N]`          | Shift down by `N` (default 1). Clamped to range.                     |
+| `--before <name>`     | Insert immediately before the sibling/component named `<name>`.      |
+| `--after <name>`      | Insert immediately after.                                            |
+
+**Behavior:**
+
+- **Sibling mode** uses `Transform.SetSiblingIndex`. One Undo entry.
+- **Component mode** uses `ComponentUtility.MoveComponentUp` /
+  `MoveComponentDown` — Unity's only public API for component reordering —
+  so absolute targets are reached by stepping repeatedly under the hood.
+- `Transform` / `RectTransform` is always at component index 0 and cannot
+  be reordered (Unity refuses).
+- Out-of-range targets are **clamped, not errors** (e.g. `--up 99` from
+  index 2 just lands at 0).
+- Already-at-target invocations succeed with `status="noop"`.
+- For `--before` / `--after`, `<name>` matches the **first** sibling
+  GameObject with that name, or the component **type name** for
+  component mode (e.g. `Rigidbody`, not `Rigidbody[1]`).
+
+**Examples:**
+
+```bash
+# Move a UI button to the top so it draws first
+unity-cli reorder UI/Canvas/Button --first
+
+# Push the boss to the end of its enemy list
+unity-cli reorder World/Enemies/Boss --last
+
+# Drop into a specific slot
+unity-cli reorder World/Tracks/Drum --index 0
+
+# Nudge up two slots
+unity-cli reorder World/UI/HealthBar --up 2
+
+# Insert before/after named siblings
+unity-cli reorder World/Player/Hand --before Body
+unity-cli reorder World/Player/Hand --after Torso
+
+# Component reorder — move Rigidbody above Collider in the Inspector
+unity-cli reorder World/Player:Rigidbody --up
+
+# Move AudioSource right after the Animator
+unity-cli reorder World/Player:AudioSource --after Animator
+
+# Pin a script component to the top (just below Transform)
+unity-cli reorder World/Player:PlayerController --first
 ```
 
 ---
