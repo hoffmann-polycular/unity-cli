@@ -93,6 +93,10 @@ func Execute() error {
 	case "version", "--version", "-v":
 		fmt.Println("unity-cli " + Version)
 		return nil
+	case "completion":
+		return completionCmd(subArgs)
+	case "__complete":
+		return completeDispatchCmd(subArgs)
 	case "update":
 		return updateCmd(subArgs)
 	case "status":
@@ -469,6 +473,13 @@ Status:
 Update:
   update                        Update to the latest version
   update --check                Check for updates without installing
+
+Shell Completion:
+  completion bash               Print bash completion script
+  completion zsh                Print zsh completion script
+  completion fish               Print fish completion script
+  completion powershell         Print PowerShell completion script
+  (see 'unity-cli help completion' for installation)
 
 Global Options:
   --port <N>          Connect to specific Unity port (skip auto-discovery)
@@ -1218,6 +1229,65 @@ Options:
 Examples:
   unity-cli update
   unity-cli update --check
+`)
+	case "completion":
+		fmt.Print(`Usage: unity-cli completion <bash|zsh|fish|powershell>
+
+Print a shell completion script. Source it (or install it system-wide) to
+enable tab-completion for unity-cli commands, flags, and live Unity paths.
+
+Static completions (work without Unity running):
+  - Top-level commands and subcommands
+  - Flags per command
+  - Known flag values (--mode, --view, --stacktrace, --area, --sort, ...)
+  - Primitive types (create), common component types
+
+Dynamic completions (require a running Unity instance):
+  - GameObject hierarchy paths           "World/Pl<TAB>"
+  - Component suffixes                   "World/Player:<TAB>"
+  - Asset paths under Assets/, Packages/ "Assets/Prefabs/<TAB>"
+  - Tags and layers                      "find --tag <TAB>"
+
+If Unity is not running, dynamic completions silently return nothing — the
+shell falls back to its default file completion. Static completions still
+work.
+
+Installation:
+
+  # Bash (per-session)
+  source <(unity-cli completion bash)
+
+  # Bash (persistent)
+  unity-cli completion bash >> ~/.bashrc
+
+  # Zsh (per-session)
+  source <(unity-cli completion zsh)
+
+  # Zsh (persistent — drop into a directory in $fpath)
+  unity-cli completion zsh > "${fpath[1]}/_unity-cli"
+
+  # Fish (per-session)
+  unity-cli completion fish | source
+
+  # Fish (persistent)
+  unity-cli completion fish > ~/.config/fish/completions/unity-cli.fish
+
+  # PowerShell (persistent — add to $PROFILE)
+  unity-cli completion powershell >> $PROFILE
+  # Or per-session:
+  unity-cli completion powershell | Out-String | Invoke-Expression
+
+Examples (after installing):
+  unity-cli ls World/<TAB>                    # children of World
+  unity-cli set World/Player:<TAB>            # components on Player
+  unity-cli cp World/Player /<TAB>            # scene-root candidates
+  unity-cli find-asset --type <TAB>           # known asset types
+  unity-cli prefab open Assets/<TAB>          # prefab assets
+
+Notes:
+  - Dynamic completion uses a 1.5s timeout; slow Unity recompiles can
+    make completions appear empty until the Editor finishes work.
+  - Object names with spaces work: shells quote them automatically.
 `)
 	case "custom-tools", "custom", "tools":
 		fmt.Print(`How to write custom tools for unity-cli

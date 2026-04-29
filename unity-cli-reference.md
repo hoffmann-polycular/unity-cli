@@ -26,6 +26,7 @@ tools (pipes, `jq`, `xargs`, `grep`, `awk`).
     - [status](#status)
     - [list](#list)
     - [update](#update)
+    - [completion](#completion)
     - [Custom tools](#custom-tools)
   - Planned additions (this doc's todo list)
     - [ls](#ls)
@@ -497,6 +498,76 @@ unity-cli update [--check]
 
 **Options:**
 - `--check` — check for updates without installing.
+
+---
+
+### `completion`
+
+✅ **Implemented**
+
+Print a shell completion script. Tab-complete commands, flags, primitive
+types, asset types, and **live Unity hierarchy paths**.
+
+```
+unity-cli completion <bash|zsh|fish|powershell>
+```
+
+**Static completions** (work without Unity running):
+- Top-level commands and subcommands
+- Flags per command (and per subcommand)
+- Known flag values (`--mode`, `--view`, `--stacktrace`, `--area`, `--sort`, `--type` for `find-asset`, …)
+- Primitive types for `create`, common Unity component type names
+
+**Dynamic completions** (require a running Unity instance):
+- GameObject hierarchy paths — `World/Pl<TAB>` → `World/Player`, `World/Platform`
+- Component suffixes — `World/Player:<TAB>` → `World/Player:Transform`, `…:Rigidbody`
+- Asset paths — `Assets/Pre<TAB>` → folders and files under the prefix
+- Tags — `find --tag <TAB>` → registered tag names
+- Layers — `find --layer <TAB>` → layer names
+
+When Unity isn't running, dynamic completions silently return nothing —
+the shell falls back to its default behaviour. Static completions still
+work. Dynamic queries use a 1.5s timeout so completion never hangs.
+
+**Installation:**
+
+```bash
+# Bash (per-session)
+source <(unity-cli completion bash)
+
+# Bash (persistent)
+unity-cli completion bash >> ~/.bashrc
+
+# Zsh (drop into a directory in $fpath)
+unity-cli completion zsh > "${fpath[1]}/_unity-cli"
+
+# Fish
+unity-cli completion fish > ~/.config/fish/completions/unity-cli.fish
+
+# PowerShell
+unity-cli completion powershell >> $PROFILE
+```
+
+**Examples** (after installing):
+
+```bash
+unity-cli ls World/<TAB>                # children of World
+unity-cli set World/Player:<TAB>        # components on Player
+unity-cli cp World/Player /<TAB>        # scene-root candidates for cp dst
+unity-cli find-asset --type <TAB>       # known asset types
+unity-cli prefab open Assets/<TAB>      # prefab assets
+```
+
+**Architecture:**
+
+The shell scripts call back into a hidden command:
+
+```
+unity-cli __complete <wordIndex> <args...>
+```
+
+which prints one candidate per line. Path candidates are emitted by the
+`complete_path` Unity tool — one round-trip per `<TAB>`.
 
 ---
 
