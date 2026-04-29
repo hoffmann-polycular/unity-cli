@@ -154,6 +154,10 @@ func Execute() error {
 		resp, err = createCmd(subArgs, send)
 	case "delete":
 		resp, err = deleteCmd(subArgs, send)
+	case "cp":
+		resp, err = cpCmd(subArgs, send)
+	case "mv":
+		resp, err = mvCmd(subArgs, send)
 	case "find-asset":
 		resp, err = findAssetCmd(subArgs, send)
 	case "prefab":
@@ -369,6 +373,14 @@ Scene:
   delete <path>                 Destroy a GameObject and its children
   delete <path> --all           Destroy all matches (no ambiguity error)
   find ... --plain | delete     Batch delete via stdin (one path per line)
+  cp <src> <parent>/<name>      Copy a GameObject to a new location
+  cp <src> <parent>/            Copy under parent, keep source name
+  cp <src> /<name>              Copy at the scene root (no parent)
+  cp <src> <dst> --depth N      Limit descendant layers (0 = no children)
+  cp <src> <dst> --auto-suffix  Append " (1)", " (2)", … on name collision
+  mv <src> <parent>/<name>      Move/rename a GameObject (reparent + rename)
+  mv <src> <parent>/            Reparent, keep current name
+  mv <src> /<name>              Move to the scene root (no parent)
 
 Console:
   console                       Read error & warning logs (default)
@@ -742,6 +754,86 @@ Notes:
     Collider and Material. Remove or modify as needed with 'component remove'.
   - Parent path must exist; create won't auto-create intermediate parents.
   - Object is created at the parent's position/rotation/scale.
+`)
+	case "cp":
+		fmt.Print(`Usage: unity-cli cp <src> <dst> [--depth N] [--auto-suffix [format]]
+
+Copy a GameObject to a new location in the hierarchy. Returns the canonical
+path of the new object, ready to pipe into set / component add / select.
+
+Destination forms:
+  parent/name      Copy under <parent>, named <name>.
+  parent/          Copy under <parent>, keep the source's own name.
+  /name            Copy at the scene root (no parent), named <name>.
+  /                Copy at the scene root, keep the source's own name.
+
+Default: deep copy of the entire subtree, no name conflict handling
+(Unity allows duplicate sibling names).
+
+Options:
+  --depth <N>            Descendant layers to include:
+                           0  → object only, no children
+                           1  → object + immediate children
+                           N  → N levels deep
+                         Omitted = full deep copy (Unity default).
+
+  --auto-suffix          On a sibling-name collision, append a numeric
+                         suffix using Unity's default format:
+                           Player → Player (1) → Player (2) → …
+                         No suffix is added when the desired name is free.
+
+  --auto-suffix <format> Custom suffix format. Use {n} as the index
+                         placeholder, e.g.:
+                           "_{n}"  → Player_1, Player_2
+                           ".{n}"  → Player.1, Player.2
+
+Behavior:
+  - Registers a single Undo entry; one Ctrl+Z reverses the whole copy.
+  - Prefab connections are NOT preserved — the result is a standalone
+    GameObject with no link to the source asset. Use 'prefab create' to
+    derive a new prefab from a copy.
+
+Examples:
+  unity-cli cp World/Player World/Player2
+  unity-cli cp World/Player World/Backup/
+  unity-cli cp World/Player World/PlayerStub --depth 0
+  unity-cli cp World/Boss World/BossEcho --depth 2
+  unity-cli cp World/Enemy World/Wave/Enemy --auto-suffix
+  unity-cli cp World/Enemy World/Wave/Enemy --auto-suffix "_{n}"
+  unity-cli cp World/Player/Hat /Hat
+  unity-cli cp World/Player /
+  unity-cli cp World/Player World/Player2 | \
+      xargs -I{} unity-cli set {}:Transform.position "0 0 5"
+`)
+	case "mv":
+		fmt.Print(`Usage: unity-cli mv <src> <dst>
+
+Move and/or rename a GameObject in one operation. Mirrors a Hierarchy drag
+combined with F2 rename. Emits the canonical path of the moved object.
+
+Destination forms:
+  parent/name      Move under <parent>, rename to <name>.
+  parent/          Move under <parent>, keep the current name.
+  /name            Move to the scene root (no parent), rename to <name>.
+  /                Move to the scene root, keep the current name.
+
+A pure rename in place is 'mv A/X A/Y'. A non-root destination parent must
+already exist. Moving an object into one of its own descendants is rejected.
+The scene-root forms keep the object in its current scene.
+
+Behavior:
+  - Single Undo entry covers both reparent and rename.
+  - Prefab instance connection is preserved (same as dragging in the
+    Hierarchy window).
+
+Examples:
+  unity-cli mv World/Player World/Hero                       # rename in place
+  unity-cli mv World/Enemies/Boss World/Bosses/              # reparent
+  unity-cli mv World/Enemies/Boss World/Bosses/FinalBoss     # both
+  unity-cli mv World/Player/Hat /Hat                         # promote to scene root
+  unity-cli mv World/Player /                                # to scene root, keep name
+  unity-cli find --name "Temp_*" --plain | \
+      xargs -I{} unity-cli mv {} World/Trash/
 `)
 	case "select":
 		fmt.Print(`Usage: unity-cli select <path>

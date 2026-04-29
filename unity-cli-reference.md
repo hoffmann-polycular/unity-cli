@@ -37,6 +37,8 @@ tools (pipes, `jq`, `xargs`, `grep`, `awk`).
     - [select](#select)
     - [create](#create)
     - [delete](#delete)
+    - [cp](#cp)
+    - [mv](#mv)
     - [find-asset](#find-asset)
     - [prefab](#prefab)
 - [Common Usage Examples](#common-usage-examples)
@@ -517,9 +519,10 @@ with `[UnityCliTool(Name = "my_name")]`. Parameters are declared via a nested
 full template.
 
 All planned commands below (`ls`, `find`, `inspect`, `get`, `set`,
-`component`, `select`, `create`, `delete`, `find-asset`, `prefab`) will be
-implemented on top of this same mechanism — one `[UnityCliTool]` class per
-tool, plus Go-side wrappers where piping/polling ergonomics demand it.
+`component`, `select`, `create`, `delete`, `cp`, `mv`, `find-asset`,
+`prefab`) will be implemented on top of this same mechanism — one
+`[UnityCliTool]` class per tool, plus Go-side wrappers where piping/polling
+ergonomics demand it.
 
 ---
 
@@ -773,6 +776,143 @@ unity-cli delete <path> [--all]
 ```bash
 unity-cli delete World/Enemies/OldSpawn
 unity-cli find --name "Temp_*" --plain | xargs -I{} unity-cli delete {}
+```
+
+---
+
+### `cp`
+
+✅ **Implemented**
+
+Copy a GameObject to a new location in the hierarchy. Mirrors the Editor's
+**Edit → Duplicate** when copying alongside the source, and reparents +
+duplicates in one step otherwise. The whole subtree is copied by default;
+`--depth` constrains how many layers of descendants come along.
+
+```
+unity-cli cp <src> <dst> [--depth <N>] [--auto-suffix [<format>]]
+```
+
+**Path forms for `<dst>`:**
+
+| Form              | Meaning                                                       |
+|-------------------|---------------------------------------------------------------|
+| `<parent>/<name>` | Copy under `<parent>`, with the new object named `<name>`.    |
+| `<parent>/`       | Copy under `<parent>`, keeping the source's own name.         |
+| `/<name>`         | Copy at the scene root (no parent), named `<name>`.           |
+| `/`               | Copy at the scene root, keeping the source's own name.        |
+
+A non-root `<dst>` parent must already exist. The scene-root forms place
+the clone in the same scene as the source. Unity allows duplicate sibling
+names — by default `cp` does exactly what you ask, even when the result
+collides with an existing sibling. Pass `--auto-suffix` if you want
+unique names.
+
+**Options:**
+- `--depth <N>` — descendant layers to include. `0` = the object only,
+  no children. `1` = object + immediate children. `2` = two levels deep.
+  Omitted = full deep copy (default Unity behaviour).
+- `--auto-suffix` — on a sibling-name collision, append a numeric suffix
+  using Unity's default format ` (1)`, ` (2)`, … (`Player` → `Player (1)`).
+  No suffix is added when the desired name is already free.
+- `--auto-suffix <format>` — custom suffix format. Use `{n}` as the
+  number placeholder, e.g. `_{n}` → `Player_1`, `.{n}` → `Player.1`.
+
+**Behavior:**
+- Emits the canonical path of the new object on stdout — pipes cleanly
+  into `set`, `component add`, `select`, `inspect`.
+- Registers a single Undo entry; one Ctrl+Z in the Editor reverses the
+  whole copy.
+- Prefab connections are **not** preserved; the result is a standalone
+  GameObject with no link to the source asset. Use `prefab create` if you
+  want to derive a new prefab from the copied subtree.
+
+**Examples:**
+```bash
+# Duplicate alongside (the Ctrl+D case)
+unity-cli cp World/Player World/Player2
+
+# Copy into another parent, keep source name
+unity-cli cp World/Player World/Backup/
+
+# Shallow copy: object + its components only, no children
+unity-cli cp World/Player World/PlayerStub --depth 0
+
+# Copy down to two levels of children
+unity-cli cp World/Boss World/BossEcho --depth 2
+
+# Auto-suffix with Unity's default format
+unity-cli cp World/Enemy World/Wave/Enemy --auto-suffix
+# → World/Wave/Enemy (1)  (if Enemy already exists under Wave)
+
+# Auto-suffix with a custom format
+unity-cli cp World/Enemy World/Wave/Enemy --auto-suffix "_{n}"
+# → World/Wave/Enemy_1
+
+# Promote a nested object to the scene root
+unity-cli cp World/Player/Hat /Hat
+
+# Copy to scene root, keep source name
+unity-cli cp World/Player /
+
+# Pipe the new path into a follow-up edit
+unity-cli cp World/Player World/Player2 | \
+    xargs -I{} unity-cli set {}:Transform.position "0 0 5"
+```
+
+---
+
+### `mv`
+
+✅ **Implemented**
+
+Move and/or rename a GameObject. Reparenting and renaming are unified into a
+single operation, the way an Editor user does it by dragging in the Hierarchy
+and pressing F2.
+
+```
+unity-cli mv <src> <dst>
+```
+
+**Path forms for `<dst>`** match `cp`:
+
+| Form              | Meaning                                                       |
+|-------------------|---------------------------------------------------------------|
+| `<parent>/<name>` | Move under `<parent>` and rename to `<name>`.                 |
+| `<parent>/`       | Move under `<parent>`, keep the current name.                 |
+| `/<name>`         | Move to the scene root (no parent), rename to `<name>`.       |
+| `/`               | Move to the scene root, keep the current name.                |
+
+A pure rename in place is `mv A/X A/Y`. A non-root `<dst>` parent must
+already exist. Moving an object into one of its own descendants is rejected.
+The scene-root forms keep the object in its current scene.
+
+**Behavior:**
+- Emits the canonical path of the moved object after the move.
+- Registers a single Undo entry covering both reparent and rename.
+- Prefab connection is preserved if the moved object was a prefab
+  instance, just like dragging in the Hierarchy.
+
+**Examples:**
+```bash
+# Pure rename
+unity-cli mv World/Player World/Hero
+
+# Reparent, keep name
+unity-cli mv World/Enemies/Boss World/Bosses/
+
+# Reparent and rename in one step
+unity-cli mv World/Enemies/Boss World/Bosses/FinalBoss
+
+# Promote a nested object to the scene root
+unity-cli mv World/Player/Hat /Hat
+
+# Move to the scene root, keep current name
+unity-cli mv World/Player /
+
+# Batch reparent every "Temp_*" under World/Trash/
+unity-cli find --name "Temp_*" --plain | \
+    xargs -I{} unity-cli mv {} World/Trash/
 ```
 
 ---
