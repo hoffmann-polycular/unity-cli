@@ -25,14 +25,24 @@
 package cmd
 
 import (
+	"strings"
+
 	"github.com/youngwoocho02/unity-cli/internal/client"
 )
 
 // getCmd reads one serialized-property value from a path.
 //
-// A thin pass-through: translates `--json` to `--format json` so the wire
-// param matches what the C# tool expects, then forwards everything else.
+// Stdin support:
+//
+//	find --component Light --plain | unity-cli get :Light.intensity
+//	find --component Rigidbody --plain | unity-cli get :Rigidbody.mass
+//
+// When stdin is piped, each line is treated as a path. If the positional
+// starts with ":" (a component/property suffix), it's appended to every
+// piped path. Otherwise piped lines are used as-is.
 func getCmd(args []string, send sendFn) (*client.CommandResponse, error) {
+	// Translate --json to --format json so the wire param matches what the
+	// C# tool expects.
 	rest := make([]string, 0, len(args))
 	for _, a := range args {
 		switch a {
@@ -43,9 +53,56 @@ func getCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 		}
 	}
 
+	// Pull positional + flags. Use stdin paths to drive fan-out when piped.
+	stdinPaths := readStdinPaths()
+	if len(stdinPaths) > 0 {
+		positional, flagArgs := splitPositionalFromFlags(rest)
+		suffix := ""
+		if len(positional) > 0 && strings.HasPrefix(positional[0], ":") {
+			suffix = positional[0]
+		}
+		fullPaths := make([]string, 0, len(stdinPaths))
+		for _, p := range stdinPaths {
+			fullPaths = append(fullPaths, p+suffix)
+		}
+		params, err := buildParams(flagArgs, nil)
+		if err != nil {
+			return nil, err
+		}
+		// Single path → use scalar shape; multi-path → use args[] array.
+		if len(fullPaths) == 1 {
+			params["path"] = fullPaths[0]
+		} else {
+			params["args"] = fullPaths
+		}
+		return send("get", params)
+	}
+
 	params, err := buildParams(rest, nil)
 	if err != nil {
 		return nil, err
 	}
 	return send("get", params)
+}
+
+// splitPositionalFromFlags peels positional arguments off the front of an
+// arg list. A positional is any arg that doesn't start with "-" and isn't
+// the value of a preceding flag. Returns (positionals, remainingFlags).
+func splitPositionalFromFlags(args []string) ([]string, []string) {
+	positionals := []string{}
+	flags := []string{}
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if strings.HasPrefix(a, "--") || strings.HasPrefix(a, "-") {
+			flags = append(flags, a)
+			// Best-effort: if next token isn't a flag, treat it as the flag's value.
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				flags = append(flags, args[i+1])
+				i++
+			}
+			continue
+		}
+		positionals = append(positionals, a)
+	}
+	return positionals, flags
 }

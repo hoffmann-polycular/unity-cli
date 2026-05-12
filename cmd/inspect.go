@@ -25,14 +25,21 @@
 package cmd
 
 import (
+	"strings"
+
 	"github.com/youngwoocho02/unity-cli/internal/client"
 )
 
 // inspectCmd dumps the Inspector view of a path target.
 //
-// Translates the output-format flag and the kebab-case `--overrides-only`
-// into the snake_case param the C# tool reads. The path itself rides
-// through as the first positional arg.
+// Stdin support:
+//
+//	find --component Light --plain | unity-cli inspect
+//	find --component Light --plain | unity-cli inspect :Light
+//
+// When stdin is piped, each line is treated as a path. If the positional
+// starts with ":" (a component/property suffix), it's appended to every
+// piped path. Otherwise piped lines are used as-is.
 func inspectCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	rest := make([]string, 0, len(args))
 	for _, a := range args {
@@ -44,6 +51,29 @@ func inspectCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 		default:
 			rest = append(rest, a)
 		}
+	}
+
+	stdinPaths := readStdinPaths()
+	if len(stdinPaths) > 0 {
+		positional, flagArgs := splitPositionalFromFlags(rest)
+		suffix := ""
+		if len(positional) > 0 && strings.HasPrefix(positional[0], ":") {
+			suffix = positional[0]
+		}
+		fullPaths := make([]string, 0, len(stdinPaths))
+		for _, p := range stdinPaths {
+			fullPaths = append(fullPaths, p+suffix)
+		}
+		params, err := buildParams(flagArgs, nil)
+		if err != nil {
+			return nil, err
+		}
+		if len(fullPaths) == 1 {
+			params["path"] = fullPaths[0]
+		} else {
+			params["args"] = fullPaths
+		}
+		return send("inspect", params)
 	}
 
 	params, err := buildParams(rest, nil)

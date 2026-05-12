@@ -34,16 +34,43 @@ import (
 
 // setCmd writes a single serialized-property value.
 //
-// Accepts three input forms for the value:
+// Input forms:
 //
-//	unity-cli set <path> <value>
-//	unity-cli set <path> --value <value>
-//	echo <value> | unity-cli set <path>           (piped stdin)
+//	unity-cli set <path> <value>                          # explicit
+//	unity-cli set <path> --value <value>                  # via flag
+//	echo <value> | unity-cli set <path>                   # value from stdin
+//	find ... --plain | unity-cli set <:suffix> <value>    # multi-path broadcast
 //
-// The piped form is the round-trip target for `get | set`. We only pull
-// stdin when no value was provided on the command line, so writing a
-// literal flag value still works fine.
+// In multi-path broadcast mode (positional 0 starts with ":" and a value
+// positional is present), each stdin line is treated as a path; the suffix
+// is appended and the value is broadcast to every resulting target. All
+// writes share one Undo group.
 func setCmd(args []string, send sendFn) (*client.CommandResponse, error) {
+	positional, flagArgs := splitPositionalFromFlags(args)
+
+	// Multi-path broadcast: ":<suffix> <value>" + stdin paths.
+	if len(positional) >= 2 && strings.HasPrefix(positional[0], ":") {
+		stdinPaths := readStdinPaths()
+		if len(stdinPaths) > 0 {
+			suffix := positional[0]
+			value := positional[1]
+
+			// Build args = [path1+suffix, path2+suffix, ..., value].
+			combined := make([]string, 0, len(stdinPaths)+1)
+			for _, p := range stdinPaths {
+				combined = append(combined, p+suffix)
+			}
+			combined = append(combined, value)
+
+			params, err := buildParams(append(flagArgs, combined...), nil)
+			if err != nil {
+				return nil, err
+			}
+			return send("set", params)
+		}
+	}
+
+	// Single-target: value may come from stdin when only the path is given.
 	if needsStdinValue(args) {
 		if v := readStdinValue(); v != "" {
 			args = append(args, v)

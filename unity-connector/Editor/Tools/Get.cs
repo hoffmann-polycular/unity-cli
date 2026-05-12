@@ -61,10 +61,18 @@ namespace UnityCliConnector.Tools
 		public static object HandleCommand(JObject @params)
 		{
 			var p = new ToolParams(@params);
-			var path = p.Get("path")
-					   ?? (p.GetRaw("args") as JArray)?[0]?.ToString();
+			var args = p.GetRaw("args") as JArray;
+			var pathParam = p.Get("path");
 			var sourceMode = p.GetBool("source");
 			var format = (p.Get("format") ?? "plain").ToLowerInvariant();
+
+			// Multi-path mode: args has >1 entries → fan out across all of them.
+			// Each entry is an independent path with its own :Component.property
+			// suffix; their target sets union into one flat result list.
+			if (string.IsNullOrWhiteSpace(pathParam) && args != null && args.Count > 1)
+				return GetMulti(args, sourceMode, format);
+
+			var path = pathParam ?? (args != null && args.Count > 0 ? args[0]?.ToString() : null);
 
 			if (string.IsNullOrWhiteSpace(path))
 				return new ErrorResponse("get requires a path with :Component.property.");
@@ -142,6 +150,121 @@ namespace UnityCliConnector.Tools
 					["results"] = entries,
 				});
 				if (successCount < targets.Count)
+				{
+					jsonResp.partialFailure = true;
+					jsonResp.stderr = string.Join("\n", errorLines);
+				}
+				return jsonResp;
+			}
+
+			var resp = new SuccessResponse("", string.Join("\n", successLines));
+			if (errorLines.Count > 0)
+			{
+				resp.partialFailure = true;
+				resp.stderr = string.Join("\n", errorLines);
+			}
+			return resp;
+		}
+
+		// Multi-path entry point: process each input path independently,
+		// then unify the per-target results into one fan-out response.
+		// Each path can have its own component/property suffix; errors on
+		// one path don't stop the others.
+		private static object GetMulti(JArray paths, bool sourceMode, string format)
+		{
+			var entries = new List<object>();
+			var successLines = new List<string>();
+			var errorLines = new List<string>();
+			var successCount = 0;
+			var totalCount = 0;
+
+			foreach (var pathTok in paths)
+			{
+				var pathStr = pathTok?.ToString();
+				if (string.IsNullOrWhiteSpace(pathStr)) continue;
+
+				var parseRes = PathParser.Parse(pathStr);
+				if (!parseRes.IsSuccess)
+				{
+					errorLines.Add($"{pathStr}: {parseRes.ErrorMessage}");
+					totalCount++;
+					continue;
+				}
+				var parsed = parseRes.Value;
+
+				if (parsed.Kind == PathKind.ProjectSettings)
+				{
+					errorLines.Add($"{pathStr}: ProjectSettings paths are not supported in multi-path mode.");
+					totalCount++;
+					continue;
+				}
+				if (!parsed.Component.IsPresent)
+				{
+					errorLines.Add($"{pathStr}: get requires a component — add ':TypeName' to the path.");
+					totalCount++;
+					continue;
+				}
+				if (parsed.Properties == null || parsed.Properties.Count == 0)
+				{
+					errorLines.Add($"{pathStr}: get requires a property — add '.propertyName' to the path.");
+					totalCount++;
+					continue;
+				}
+
+				var targetsRes = PathResolver.ResolveTargets(parsed);
+				if (!targetsRes.IsSuccess)
+				{
+					errorLines.Add($"{pathStr}: {targetsRes.ErrorMessage}");
+					totalCount++;
+					continue;
+				}
+
+				foreach (var go in targetsRes.Value)
+				{
+					totalCount++;
+					var single = GetOne(go, parsed, sourceMode, "json", prefixWithPath: false);
+					if (single is SuccessResponse sr && sr.data is Dictionary<string, object> dict)
+					{
+						entries.Add(dict);
+						successCount++;
+						if (format != "json")
+						{
+							var rendered = FormatPipeFriendly(dict.TryGetValue("value", out var vv) ? vv : null);
+							if (format == "plain")
+							{
+								successLines.Add(rendered);
+							}
+							else
+							{
+								var canon = dict.TryGetValue("path", out var pp) ? pp?.ToString() : PathResolver.GetCanonicalPath(go);
+								var compName = dict.TryGetValue("component", out var cc) ? cc?.ToString() : "";
+								var propName = dict.TryGetValue("property", out var pn) ? pn?.ToString() : "";
+								successLines.Add($"{canon}:{compName}.{propName}  {rendered}");
+							}
+						}
+					}
+					else if (single is ErrorResponse er)
+					{
+						entries.Add(new Dictionary<string, object>
+						{
+							["path"] = PathResolver.GetCanonicalPath(go),
+							["ok"] = false,
+							["error"] = er.message,
+						});
+						if (format != "json")
+							errorLines.Add($"{PathResolver.GetCanonicalPath(go)}: {er.message}");
+					}
+				}
+			}
+
+			if (format == "json")
+			{
+				var jsonResp = new SuccessResponse("", new Dictionary<string, object>
+				{
+					["count"] = totalCount,
+					["results"] = entries,
+				});
+				if (successCount < totalCount)
 				{
 					jsonResp.partialFailure = true;
 					jsonResp.stderr = string.Join("\n", errorLines);

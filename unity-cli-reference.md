@@ -770,6 +770,8 @@ unity-cli ls [<path>] [-r|--recursive] [--components] [--json|--plain|--null-del
 **Behavior:**
 - `[n]` indices shown only on names that are actually duplicated at that level.
 - Inactive GameObjects included by default, marked `(inactive)` in human output.
+- In `--plain` / `--null-delimited` modes, `--components` appends a TAB-separated
+  comma-joined component list, so `cut -f1` strips it cleanly back to paths.
 
 **Examples:**
 ```bash
@@ -881,10 +883,17 @@ unity-cli inspect <path> [--overrides-only] [--json|--plain]
 ```
 
 **Options:**
-- `<path>` — object, component, or property path.
+- `<path>` — object, component, or property path. Omit to inspect the current
+  selection (equivalent to `inspect .`).
 - `--overrides-only` — show only properties that override the prefab (if any).
 - In `--plain` output, overridden properties are marked with `*override*` and
   the prefab source value is shown in parentheses.
+
+**Stdin (multi-path mode):**
+
+When stdin is piped, each line is treated as a path. If the positional starts
+with `:` it's appended to every piped path as a component/property suffix;
+otherwise piped lines are used as-is. Results stream out in input order.
 
 **Examples:**
 ```bash
@@ -896,6 +905,11 @@ unity-cli inspect World/Player --json | jq '.Transform.localPosition'
 # :GameObject pseudo-component — name, active state, tag, layer, isStatic
 unity-cli inspect World/Player:GameObject
 unity-cli inspect World/Player:GameObject.activeSelf
+
+# Multi-path via stdin
+unity-cli inspect                                          # inspect selection
+unity-cli find --component Light --plain | unity-cli inspect :Light
+unity-cli find --component Rigidbody --plain | unity-cli inspect
 ```
 
 ---
@@ -919,6 +933,13 @@ unity-cli get <path> [--source] [--json]
   JSON object with `--json`.
 - Reference properties emit a canonical path (so `get | inspect` chains).
 
+**Stdin (multi-path mode):**
+
+When stdin is piped, each line is treated as a path and the positional acts
+as a `:Component.property` suffix appended to every line. Successful values
+are written one per line to stdout (in input order), per-path errors to
+stderr; exit code is non-zero when any path failed.
+
 **Examples:**
 ```bash
 unity-cli get World/Player:Rigidbody.mass
@@ -931,6 +952,10 @@ unity-cli get World/Player:GameObject.name
 unity-cli get World/Player:GameObject.activeSelf
 unity-cli get World/Player:GameObject.tag
 unity-cli get World/Player:GameObject.layer
+
+# Multi-path via stdin
+unity-cli find --component Light --plain | unity-cli get :Light.intensity
+unity-cli find --component Rigidbody --plain | unity-cli get :Rigidbody.mass
 ```
 
 ---
@@ -952,6 +977,17 @@ unity-cli set <path> [<value>] [--all]
   or `null`/`none` to clear. Read from stdin if omitted.
 - For prefab instances, creates an override implicitly (same as typing in
   the Inspector).
+
+**Stdin (multi-path broadcast):**
+
+When the first positional starts with `:` (a component/property suffix) and
+the second positional is a value, paths come from stdin and the value is
+broadcast to each. All writes share one Undo group:
+
+```bash
+unity-cli find --component Rigidbody --plain | \
+    unity-cli set :Rigidbody.mass 100
+```
 
 **Examples:**
 ```bash
@@ -1439,9 +1475,13 @@ unity-cli select --get | unity-cli set World/Enemy:AIScript.target
 ### Batch mutations
 
 ```bash
-# Flatten all enemies to y=0
+# Flatten all enemies to y=0 — native multi-path broadcast, one Undo group
 unity-cli find --name "Enemy*" --plain | \
-    xargs -I{} unity-cli set {}:Transform.position.y 0
+    unity-cli set :Transform.position.y 0
+
+# Read mass of every Rigidbody (one value per line, in input order)
+unity-cli find --component Rigidbody --plain | \
+    unity-cli get :Rigidbody.mass
 
 # Halve rigidbody masses (shell arithmetic via bc)
 unity-cli find --component Rigidbody --plain | while read p; do
@@ -1457,22 +1497,21 @@ unity-cli find --component MeshRenderer --missing Collider --plain | \
 ### Activating, renaming, and tagging objects
 
 ```bash
-# Disable all UI panels at once
+# Disable all UI panels at once — native multi-path broadcast
 unity-cli find /UI --component Canvas --plain | \
-    xargs -I{} unity-cli set {}:GameObject.activeSelf false
+    unity-cli set :GameObject.activeSelf false
 
 # Re-enable them
 unity-cli find /UI --component Canvas --plain | \
-    xargs -I{} unity-cli set {}:GameObject.activeSelf true
+    unity-cli set :GameObject.activeSelf true
 
-# Rename all "Enemy_*" objects and assign the Enemy tag
-unity-cli find --name "Enemy_*" --plain | while read p; do
-    unity-cli set "$p:GameObject.tag" "Enemy"
-done
+# Assign the Enemy tag to every "Enemy_*" object
+unity-cli find --name "Enemy_*" --plain | \
+    unity-cli set :GameObject.tag Enemy
 
 # Move everything on the "Temp" layer back to Default
 unity-cli find --layer Temp --plain | \
-    xargs -I{} unity-cli set {}:GameObject.layer Default
+    unity-cli set :GameObject.layer Default
 
 # Mark all selected objects as static in one call
 unity-cli set :GameObject.isStatic true
@@ -1481,6 +1520,10 @@ unity-cli set :GameObject.isStatic true
 unity-cli get /Player:GameObject.name
 unity-cli get /Player:GameObject.activeSelf
 unity-cli get /Player:GameObject.tag
+
+# Read the activeSelf state of every Camera in the scene
+unity-cli find --component Camera --plain | \
+    unity-cli get :GameObject.activeSelf
 ```
 
 ### References

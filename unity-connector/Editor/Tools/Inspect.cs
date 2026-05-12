@@ -60,13 +60,23 @@ namespace UnityCliConnector.Tools
 		public static object HandleCommand(JObject @params)
 		{
 			var p = new ToolParams(@params);
-			var path = p.Get("path")
-					   ?? (p.GetRaw("args") as JArray)?[0]?.ToString();
+			var args = p.GetRaw("args") as JArray;
+			var pathParam = p.Get("path");
 			var overridesOnly = p.GetBool("overrides_only");
 			var format = (p.Get("format") ?? "human").ToLowerInvariant();
 
+			// Multi-path mode: args has more than one entry → each is an
+			// independent path, all results stream out in input order.
+			if (string.IsNullOrWhiteSpace(pathParam) && args != null && args.Count > 1)
+				return InspectMulti(args, overridesOnly, format);
+
+			var path = pathParam ?? (args != null && args.Count > 0 ? args[0]?.ToString() : null);
+
+			// Empty path → default to the current selection ("." semantics).
+			// Mirrors how `ls` and `select --get` behave; consistent with `get`
+			// fan-out on the selection.
 			if (string.IsNullOrWhiteSpace(path))
-				return new ErrorResponse("inspect requires a path (GameObject, Component, property, or ProjectSettings/...).");
+				path = ".";
 
 			var parseResult = PathParser.Parse(path);
 			if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
@@ -100,6 +110,81 @@ namespace UnityCliConnector.Tools
 					["results"] = results,
 				});
 			return new SuccessResponse("", JoinHumanBlocks(results));
+		}
+
+		// Multi-path entry point: iterate each input path independently and
+		// stream results. Each path resolves to its own target set (which may
+		// itself fan out via selection); all results concatenate in input
+		// order. Per-path parse / resolve failures are routed to stderr without
+		// halting other paths.
+		private static object InspectMulti(JArray paths, bool overridesOnly, string format)
+		{
+			var results = new List<object>();
+			var errorLines = new List<string>();
+			foreach (var pathTok in paths)
+			{
+				var pathStr = pathTok?.ToString();
+				if (string.IsNullOrWhiteSpace(pathStr)) continue;
+
+				var parseRes = PathParser.Parse(pathStr);
+				if (!parseRes.IsSuccess)
+				{
+					errorLines.Add($"{pathStr}: {parseRes.ErrorMessage}");
+					results.Add(new Dictionary<string, object>
+					{
+						["path"] = pathStr, ["ok"] = false, ["error"] = parseRes.ErrorMessage,
+					});
+					continue;
+				}
+				var parsed = parseRes.Value;
+
+				if (parsed.Kind == PathKind.ProjectSettings)
+				{
+					var ps = InspectProjectSettings(parsed, format);
+					results.Add(WrapForFanOut(go: null, ps, format, fallbackPath: ProjectSettingsResolver.CanonicalPath(parsed.SettingsGroup)));
+					continue;
+				}
+
+				var targetsRes = PathResolver.ResolveTargets(parsed);
+				if (!targetsRes.IsSuccess)
+				{
+					errorLines.Add($"{pathStr}: {targetsRes.ErrorMessage}");
+					results.Add(new Dictionary<string, object>
+					{
+						["path"] = pathStr, ["ok"] = false, ["error"] = targetsRes.ErrorMessage,
+					});
+					continue;
+				}
+
+				foreach (var go in targetsRes.Value)
+				{
+					var single = RenderTarget(go, parsed, overridesOnly, format);
+					results.Add(WrapForFanOut(go, single, format));
+				}
+			}
+
+			if (format == "json")
+			{
+				var resp = new SuccessResponse("", new Dictionary<string, object>
+				{
+					["count"] = results.Count,
+					["results"] = results,
+				});
+				if (errorLines.Count > 0)
+				{
+					resp.partialFailure = true;
+					resp.stderr = string.Join("\n", errorLines);
+				}
+				return resp;
+			}
+
+			var humanResp = new SuccessResponse("", JoinHumanBlocks(results));
+			if (errorLines.Count > 0)
+			{
+				humanResp.partialFailure = true;
+				humanResp.stderr = string.Join("\n", errorLines);
+			}
+			return humanResp;
 		}
 
 		private static object RenderTarget(GameObject go, ParsedPath parsed, bool overridesOnly, string format)
@@ -137,12 +222,12 @@ namespace UnityCliConnector.Tools
 			return RenderProperty(go, component, parsed.Properties, current, format);
 		}
 
-		private static object WrapForFanOut(GameObject go, object renderResult, string format)
+		private static object WrapForFanOut(GameObject go, object renderResult, string format, string fallbackPath = null)
 		{
 			// Renderers return SuccessResponse / ErrorResponse; pull out the
 			// data (or error message) so the wrapping array carries clean
 			// per-target records.
-			var canonical = PathResolver.GetCanonicalPath(go);
+			var canonical = go != null ? PathResolver.GetCanonicalPath(go) : (fallbackPath ?? "");
 			switch (renderResult)
 			{
 				case SuccessResponse sr:

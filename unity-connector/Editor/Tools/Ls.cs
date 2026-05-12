@@ -126,11 +126,11 @@ namespace UnityCliConnector.Tools
 				case "json":
 					return RenderJson(targets, recursive, includeComponents);
 				case "plain":
-					return new SuccessResponse("", RenderDelimited(targets, recursive, "\n"));
+					return new SuccessResponse("", RenderDelimited(targets, recursive, includeComponents, "\n"));
 				case "null":
 				case "null-delimited":
 				case "null_delimited":
-					return new SuccessResponse("", RenderDelimited(targets, recursive, "\0"));
+					return new SuccessResponse("", RenderDelimited(targets, recursive, includeComponents, "\0"));
 				case "human":
 				case "":
 					return new SuccessResponse("", RenderHuman(targets, recursive, includeComponents));
@@ -204,17 +204,19 @@ namespace UnityCliConnector.Tools
 
 		// ---- Plain / null-delimited rendering ----
 
-		private static string RenderDelimited(List<TargetListing> targets, bool recursive, string sep)
+		private static string RenderDelimited(
+			List<TargetListing> targets, bool recursive, bool includeComponents, string sep)
 		{
 			var sb = new StringBuilder();
 			var first = true;
 			foreach (var t in targets)
-				AppendDelimited(t.Children, recursive, sb, sep, ref first);
+				AppendDelimited(t.Children, recursive, includeComponents, sb, sep, ref first);
 			return sb.ToString();
 		}
 
 		private static void AppendDelimited(
-			List<GameObject> children, bool recursive, StringBuilder sb, string sep, ref bool first)
+			List<GameObject> children, bool recursive, bool includeComponents,
+			StringBuilder sb, string sep, ref bool first)
 		{
 			foreach (var c in children)
 			{
@@ -222,11 +224,16 @@ namespace UnityCliConnector.Tools
 				if (!first) sb.Append(sep);
 				first = false;
 				sb.Append(PathResolver.GetCanonicalPath(c));
+				if (includeComponents)
+				{
+					// Tab-separated so `cut -f1` / `cut -f2` gives clean splits.
+					sb.Append('\t').Append(string.Join(",", ComponentNames(c)));
+				}
 				if (recursive)
 				{
 					var kids = PathResolver.GetImmediateChildren(c);
 					if (kids.Count > 0)
-						AppendDelimited(kids, true, sb, sep, ref first);
+						AppendDelimited(kids, true, includeComponents, sb, sep, ref first);
 				}
 			}
 		}
