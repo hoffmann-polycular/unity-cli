@@ -28,24 +28,19 @@ import (
 	"github.com/youngwoocho02/unity-cli/internal/client"
 )
 
-// lsCmd lists scene hierarchy.
+// screenshotCmd captures a Unity scene/game view to disk.
 //
-// Translates short flags and output-format flags into the named params the
-// C# `ls` tool understands. Everything else passes through buildParams.
-func lsCmd(args []string, send sendFn) (*client.CommandResponse, error) {
+// CLI surface uses kebab-case (`--output-path`, `-o`) consistent with the
+// rest of the tools; the connector JSON key stays `output_path` (internal
+// protocol, unchanged).
+func screenshotCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	normalized := make([]string, 0, len(args))
-	for _, a := range args {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		switch a {
-		case "-R", "--recursive":
-			normalized = append(normalized, "--recursive")
-		case "-c", "--components":
-			normalized = append(normalized, "--components")
-		case "--json":
-			normalized = append(normalized, "--format", "json")
-		case "--plain":
-			normalized = append(normalized, "--format", "plain")
-		case "--null-delimited", "--null":
-			normalized = append(normalized, "--format", "null")
+		case "--output-path", "-o":
+			// User-facing kebab → wire snake.
+			normalized = append(normalized, "--output_path")
 		default:
 			normalized = append(normalized, a)
 		}
@@ -55,5 +50,5 @@ func lsCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	return send("ls", params)
+	return send("screenshot", params)
 }

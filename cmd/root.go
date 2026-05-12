@@ -208,6 +208,8 @@ func Execute() error {
 		resp, err = prefabCmd(subArgs, send)
 	case "scene":
 		resp, err = sceneCmd(subArgs, send)
+	case "screenshot":
+		resp, err = screenshotCmd(subArgs, send)
 	default:
 		var params map[string]interface{}
 		params, err = buildParams(subArgs, nil)
@@ -500,7 +502,7 @@ Menu:
 Screenshot:
   screenshot                          Capture scene view (default)
   screenshot --view game              Capture game view
-  screenshot --output_path <path>     Custom output path
+  screenshot --output-path <path>     Custom output path (alias: -o)
 
 Reserialize:
   reserialize [path...]          Force reserialize (no args = entire project)
@@ -1352,14 +1354,16 @@ Options:
   --view <mode>      scene (default), game
   --width <N>        Image width in pixels (default: 1920)
   --height <N>       Image height in pixels (default: 1080)
-  --output_path <path>  Output path, absolute or relative to project root
+  --output-path <path>  Output path, absolute or relative to project root
+  -o <path>             Short form of --output-path
                         (default: Screenshots/screenshot.png)
 
 Examples:
   unity-cli screenshot
   unity-cli screenshot --view game
   unity-cli screenshot --view scene --width 3840 --height 2160
-  unity-cli screenshot --output_path captures/my_scene.png
+  unity-cli screenshot --output-path captures/my_scene.png
+  unity-cli screenshot -o captures/my_scene.png
 `)
 	case "reserialize":
 		fmt.Print(`Usage: unity-cli reserialize [path...]

@@ -515,13 +515,13 @@ unity-cli menu "Window/General/Console"
 Capture a screenshot of the scene or game view.
 
 ```
-unity-cli screenshot [--view <scene|game>] [--width <N>] [--height <N>] [--output_path <path>]
+unity-cli screenshot [--view <scene|game>] [--width <N>] [--height <N>] [--output-path <path>]
 ```
 
 **Options:**
 - `--view <mode>` — `scene` (default) or `game`.
 - `--width <N>` / `--height <N>` — pixel dimensions (default 1920×1080).
-- `--output_path <path>` — absolute or relative to project root
+- `--output-path <path>` (alias `-o`) — absolute or relative to project root
   (default: `Screenshots/screenshot.png`).
 
 **Examples:**
@@ -759,12 +759,12 @@ ergonomics demand it.
 List children of a GameObject, or root-level objects of the active scene.
 
 ```
-unity-cli ls [<path>] [-r|--recursive] [--components] [--json|--plain|--null-delimited]
+unity-cli ls [<path>] [-R|--recursive] [--components] [--json|--plain|--null-delimited]
 ```
 
 **Options:**
 - `<path>` — GameObject path. Omit for scene roots.
-- `-r, --recursive` — descend into children (like `ls -R`).
+- `-R, --recursive` — descend into descendants (matches GNU `ls -R`).
 - `--components` — include component list alongside each object.
 - Output flags as described in [Output Formats](#output-formats).
 
@@ -778,8 +778,8 @@ unity-cli ls [<path>] [-r|--recursive] [--components] [--json|--plain|--null-del
 ```bash
 unity-cli ls
 unity-cli ls World/Player
-unity-cli ls -r World --components
-unity-cli ls -r --plain | grep Enemy
+unity-cli ls -R World --components
+unity-cli ls -R --plain | grep Enemy
 ```
 
 ---
@@ -1570,7 +1570,7 @@ done
 
 ```bash
 # What's in the scene?
-unity-cli ls -r
+unity-cli ls -R
 
 # What's on this object?
 unity-cli inspect World/Player
@@ -1705,7 +1705,7 @@ unity-cli find --prefab Assets/Prefabs/Enemy.prefab --has-overrides
 
 # Heavy prefab edit session
 unity-cli prefab open Assets/Prefabs/Enemy.prefab
-unity-cli ls -r                              # now relative to prefab root
+unity-cli ls -R                              # now relative to prefab root
 unity-cli set Root:Rigidbody.mass 10
 unity-cli component add Root/Weapon AudioSource
 unity-cli prefab close

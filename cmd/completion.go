@@ -217,7 +217,7 @@ var globalFlags = []string{
 }
 
 var commandFlags = map[string][]string{
-	"ls":         {"-r", "--recursive", "--components", "--json", "--plain", "--null-delimited"},
+	"ls":         {"-R", "--recursive", "--components", "--json", "--plain", "--null-delimited"},
 	"find":       {"--name", "--regex", "--component", "--missing", "--tag", "--layer", "--prefab", "--has-overrides", "--active", "--inactive", "--type", "--label", "--area", "--json", "--plain", "--null-delimited"},
 	"inspect":    {"--overrides-only", "--json", "--plain"},
 	"get":        {"--source", "--json"},
@@ -230,7 +230,7 @@ var commandFlags = map[string][]string{
 	"mv":         {},
 	"reorder":    {"--index", "--first", "--last", "--up", "--down", "--before", "--after"},
 	"console":    {"--lines", "--type", "--stacktrace", "--clear"},
-	"screenshot": {"--view", "--width", "--height", "--output_path"},
+	"screenshot": {"--view", "--width", "--height", "--output-path", "-o"},
 	"test":       {"--mode", "--filter"},
 	"exec":       {"--usings", "--csc", "--dotnet"},
 	"editor":     {"--wait", "--compile"},
@@ -411,7 +411,7 @@ func collectPositionals(args []string) []string {
 }
 
 var knownBooleanFlags = map[string]bool{
-	"--recursive": true, "-r": true, "--components": true,
+	"--recursive": true, "-R": true, "--components": true,
 	"--json": true, "--plain": true, "--null-delimited": true,
 	"--has-overrides": true, "--active": true, "--inactive": true,
 	"--overrides-only": true, "--source": true, "--all": true,
