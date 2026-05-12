@@ -20,6 +20,7 @@ tools (pipes, `jq`, `xargs`, `grep`, `awk`).
   - Hierarchy mutation: [create](#create), [rm](#rm), [cp](#cp), [mv](#mv), [reorder](#reorder)
   - Components: [component](#component)
   - Prefabs: [prefab](#prefab)
+  - Scenes: [scene](#scene)
   - Editor control: [editor](#editor), [console](#console), [menu](#menu), [screenshot](#screenshot), [reserialize](#reserialize), [profiler](#profiler), [test](#test), [status](#status), [list](#list)
   - Tooling: [exec](#exec), [update](#update), [completion](#completion), [Custom tools](#custom-tools)
 - [Common Usage Examples](#common-usage-examples)
@@ -1438,6 +1439,128 @@ unity-cli prefab open Assets/Prefabs/Enemy.prefab
 unity-cli prefab close
 unity-cli prefab close --discard      # throw away unsaved changes
 ```
+
+---
+
+### `scene`
+
+✅ **Implemented**
+
+Manage loaded scenes — list, open, save, close, reload, set-active, new,
+and query the dirty flag. Wraps `EditorSceneManager` and `SceneManager`.
+Identifier resolution is asset-path-first, with scene-name fallback;
+ambiguous name matches fail loudly with the candidate paths listed.
+
+```
+unity-cli scene list
+unity-cli scene open       <assetpath> [--mode single|additive|additive-without-loading]
+unity-cli scene close      <pathOrName> [--save|--discard]
+unity-cli scene save       [<pathOrName>] [--as <newassetpath>]
+unity-cli scene reload     [<pathOrName>] [--save|--discard]
+unity-cli scene set-active <pathOrName>
+unity-cli scene new        [--as <assetpath>]
+unity-cli scene dirty      [<pathOrName>]
+```
+
+**Identifier semantics:** `<pathOrName>` accepts either the on-disk asset
+path (`Assets/Scenes/Main.unity`) or the scene's display name (`Main`).
+Paths are unambiguous; names error with exit code 2 when more than one
+loaded scene shares the same name.
+
+#### `scene list`
+
+Lists every loaded scene. The active scene is prefixed with `*`; modified
+scenes are tagged `(modified)` in human output.
+
+| Format    | Output                                                                        |
+|-----------|-------------------------------------------------------------------------------|
+| `--json`  | Array of `{path, name, isLoaded, isDirty, isActive, buildIndex}`              |
+| `--plain` | One identifier per line, prefixed `* ` or `  ` — pipe target for `set-active` |
+| human     | Same as plain plus `(modified)` / `(unloaded)` annotations                    |
+
+#### `scene open <assetpath> [--mode …]`
+
+Loads a scene from disk. Defaults to `--mode single` (replaces every
+currently-loaded scene). To protect unsaved work, `single` mode refuses
+when any loaded scene is dirty — save first, or use `--mode additive`.
+
+| Mode                          | Effect                                            |
+|-------------------------------|---------------------------------------------------|
+| `single` (default)            | Replace all loaded scenes with this one           |
+| `additive`                    | Add to the loaded set, keep the rest              |
+| `additive-without-loading`    | Register the scene reference without loading it   |
+
+#### `scene close <pathOrName> [--save|--discard]`
+
+Closes a loaded scene. Refuses to discard unsaved changes implicitly —
+pass `--save` to write first or `--discard` to throw them away. Unity
+refuses to close the last loaded scene (you'll always have ≥1 loaded).
+
+#### `scene save [<pathOrName>] [--as <newassetpath>]`
+
+Saves a loaded scene. Defaults to the active scene when no argument is
+given. `--as` performs "Save As…" to a new asset path. Required when the
+scene has never been saved (no asset path).
+
+#### `scene reload [<pathOrName>] [--save|--discard]`
+
+Discards in-memory state and reopens the scene from disk. Defaults to
+the active scene. Refuses on unsaved changes implicitly — pass `--save`
+to write them out first, or `--discard` to throw them away.
+
+#### `scene set-active <pathOrName>`
+
+Promotes a loaded scene to the **active scene** — the one `Instantiate`
+calls put new objects into.
+
+#### `scene new [--as <assetpath>]`
+
+Creates a new untitled scene with `DefaultGameObjects` (Main Camera +
+Directional Light). Replaces all currently-loaded scenes (refuses on
+dirty state). `--as` saves the new scene to disk immediately.
+
+#### `scene dirty [<pathOrName>]`
+
+Prints `true` / `false` for the scene's modified state. Defaults to
+active scene.
+
+**Examples:**
+
+```bash
+unity-cli scene list
+unity-cli scene list --plain | head -1 | xargs unity-cli scene set-active
+
+# Multi-scene editing
+unity-cli scene open Assets/Scenes/UI.unity --mode additive
+unity-cli scene set-active UI
+unity-cli scene save UI --as Assets/Scenes/UI_v2.unity
+unity-cli scene close UI --discard
+
+# CI: save anything dirty, then play
+unity-cli scene list --json | jq -r '.[] | select(.isDirty) | .path' | \
+    xargs -I{} unity-cli scene save {}
+unity-cli editor play --wait
+
+# Reload to reset transient play-mode state
+unity-cli scene reload
+
+# Bulk reformat: open each scene, reserialize, save
+unity-cli find Assets/Scenes/ --type Scene --plain | while read s; do
+    unity-cli scene open "$s"
+    unity-cli scene save
+done
+```
+
+**Behavior notes:**
+
+- `open(single)` and `new` refuse to clobber unsaved changes.
+- `reload` and `close` refuse on dirty scenes unless `--save` or
+  `--discard` is given.
+- `close` on the only loaded scene fails — Unity requires ≥1 scene.
+- Identifier resolution: asset path > scene name. Name ambiguity is exit
+  code 2 with each candidate path listed.
+- Mutator output is the canonical asset path of the affected scene, so
+  pipelines like `scene open … | scene set-active` compose cleanly.
 
 ---
 

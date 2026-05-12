@@ -206,6 +206,8 @@ func Execute() error {
 		resp, err = reorderCmd(subArgs, send)
 	case "prefab":
 		resp, err = prefabCmd(subArgs, send)
+	case "scene":
+		resp, err = sceneCmd(subArgs, send)
 	default:
 		var params map[string]interface{}
 		params, err = buildParams(subArgs, nil)
@@ -536,6 +538,18 @@ Assets:
   find Assets/ --name "Metal*"          Filter by name
   find Assets/ --label MyLabel          Filter by asset label
 
+Scene:
+  scene list                            List loaded scenes (active marked with *)
+  scene open <assetpath>                Open a scene (mode=single by default)
+  scene open <ap> --mode additive       Add to currently-loaded set
+  scene close <pathOrName>              Close a loaded scene (--save | --discard)
+  scene save [<pathOrName>]             Save scene (defaults to active scene)
+  scene save --as <newassetpath>        Save active scene to a new path
+  scene reload [<pn>] [--save|--discard]  Reopen scene from disk
+  scene set-active <pathOrName>         Make a loaded scene the active scene
+  scene new [--as <assetpath>]          Create a new scene, optionally save to path
+  scene dirty [<pathOrName>]            Print true/false — is the scene modified?
+
 Prefab:
   prefab status <path>                  Show prefab connection + override summary
   prefab diff <path>                    Show overrides vs. source (git-style)
@@ -766,6 +780,79 @@ Notes:
     the result is a true variant (not a copy).
   - open changes Editor state — subsequent unity-cli calls in the same
     Unity instance see the prefab stage. close restores the previous stage.
+`)
+	case "scene":
+		fmt.Print(`Usage: unity-cli scene <subcommand> [args...]
+
+Manage loaded scenes. Wraps EditorSceneManager: open, save, close, reload,
+set-active, new, dirty. Identifier resolution is asset-path-first, name
+fallback; ambiguous names fail loudly with candidates listed.
+
+Subcommands:
+  list                          List all loaded scenes. Active scene is
+                                prefixed with '*'. Modified scenes are
+                                marked '(modified)' in human output.
+
+  open <assetpath>              Open a scene from disk. Default mode is
+                                single (replaces all currently-loaded
+                                scenes).
+    --mode single               Replace all loaded scenes (default).
+    --mode additive             Add to the loaded set.
+    --mode additive-without-loading
+                                Add the scene reference without loading
+                                its contents (lightweight registration).
+
+  close <pathOrName>            Close a loaded scene (removes it from the
+                                Hierarchy). Fails on the last loaded scene
+                                (Unity requires at least one).
+    --save                      Save first if the scene is dirty.
+    --discard                   Throw away unsaved changes silently.
+
+  save [<pathOrName>]           Save a loaded scene to disk (defaults to
+                                the active scene). Requires --as when the
+                                scene has no asset path yet.
+    --as <newassetpath>         Save to a different path ('Save As…').
+
+  reload [<pathOrName>]         Discard live state and reopen from disk.
+                                Refuses on unsaved changes unless --save
+                                or --discard is given.
+    --save                      Save unsaved changes before reloading.
+    --discard                   Throw away unsaved changes silently.
+
+  set-active <pathOrName>       Make a loaded scene the active scene.
+
+  new                           Create a new untitled scene (replaces all
+                                loaded scenes; refuses on dirty state).
+    --as <assetpath>            Save the new scene to disk immediately.
+
+  dirty [<pathOrName>]          Print 'true' / 'false' for the scene's
+                                modified state.
+
+Options:
+  --json                        Structured JSON output
+  --plain                       Pipe-friendly output (one path per line for list)
+
+Examples:
+  unity-cli scene list
+  unity-cli scene open Assets/Scenes/Main.unity
+  unity-cli scene open Assets/Scenes/UI.unity --mode additive
+  unity-cli scene set-active Main
+  unity-cli scene save
+  unity-cli scene save UI --as Assets/Scenes/UI_backup.unity
+  unity-cli scene close UI --save
+  unity-cli scene close UI --discard
+  unity-cli scene reload Main
+  unity-cli scene new --as Assets/Scenes/Empty.unity
+  unity-cli scene dirty
+  unity-cli scene list --plain | head -1 | unity-cli scene set-active
+
+Notes:
+  - Scene name vs. asset path: both work as identifiers. Asset path is
+    unambiguous; name fails on ambiguity (lists matching paths).
+  - open(single), new, and reload guard against silent data loss — they
+    refuse when any loaded scene is dirty. Save first.
+  - close on the last loaded scene is refused by Unity.
+  - SaveScene saves AssetDatabase entries; no extra refresh needed.
 `)
 	case "rm":
 		fmt.Print(`Usage: unity-cli rm <path>
