@@ -107,6 +107,10 @@ namespace UnityCliConnector.Tools
 			if (!parsed.Component.IsPresent)
 				return RenderGameObject(go, overridesOnly, format);
 
+			// :GameObject pseudo-component — virtual fields, no SerializedObject.
+			if (GameObjectProxy.Is(parsed.Component.TypeName))
+				return RenderGameObjectProxy(go, parsed, format);
+
 			var compResult = PathResolver.ResolveComponent(go, parsed.Component);
 			if (!compResult.IsSuccess) return ErrorResponse.FromResult(compResult);
 			var component = compResult.Value;
@@ -257,6 +261,53 @@ namespace UnityCliConnector.Tools
 			var hsb = new StringBuilder();
 			hsb.Append(ProjectSettingsResolver.CanonicalPath(parsed.SettingsGroup)).Append('\n');
 			AppendPropsHuman(props, hsb, depth: 1);
+			return new SuccessResponse("", hsb.ToString().TrimEnd('\n'));
+		}
+
+		// ---- :GameObject pseudo-component view ----
+
+		private static object RenderGameObjectProxy(GameObject go, ParsedPath parsed, string format)
+		{
+			// Property drilling: inspect Player:GameObject.activeSelf
+			if (parsed.Properties != null && parsed.Properties.Count > 0)
+			{
+				var propName = parsed.Properties[0];
+				var res = GameObjectProxy.Get(go, propName);
+				if (!res.IsSuccess) return ErrorResponse.FromResult(res);
+				var value = res.Value;
+
+				if (format == "json")
+					return new SuccessResponse("", new Dictionary<string, object>
+					{
+						["path"]      = PathResolver.GetCanonicalPath(go),
+						["component"] = GameObjectProxy.PseudoTypeName,
+						["property"]  = propName,
+						["type"]      = "GameObjectProperty",
+						["value"]     = value,
+					});
+
+				var sb = new StringBuilder();
+				sb.Append(PathResolver.GetCanonicalPath(go))
+				  .Append(":GameObject.").Append(propName).Append('\n');
+				AppendValueHuman(value, sb, depth: 1);
+				return new SuccessResponse("", sb.ToString().TrimEnd('\n'));
+			}
+
+			// Component-level view: inspect Player:GameObject
+			var props = GameObjectProxy.InspectAll(go);
+
+			if (format == "json")
+				return new SuccessResponse("", new Dictionary<string, object>
+				{
+					["path"]       = PathResolver.GetCanonicalPath(go),
+					["component"]  = GameObjectProxy.PseudoTypeName,
+					["properties"] = props,
+				});
+
+			var hsb = new StringBuilder();
+			hsb.Append(PathResolver.GetCanonicalPath(go)).Append(":GameObject\n");
+			foreach (var kv in props)
+				hsb.Append("  ").Append(kv.Key).Append(": ").Append(kv.Value).Append('\n');
 			return new SuccessResponse("", hsb.ToString().TrimEnd('\n'));
 		}
 

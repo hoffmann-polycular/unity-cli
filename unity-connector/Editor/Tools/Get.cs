@@ -160,6 +160,30 @@ namespace UnityCliConnector.Tools
 
 		private static object GetOne(GameObject go, ParsedPath parsed, bool sourceMode, string format, bool prefixWithPath)
 		{
+			// :GameObject pseudo-component — bypass SerializedObject entirely.
+			if (GameObjectProxy.Is(parsed.Component.TypeName))
+			{
+				if (sourceMode)
+					return new ErrorResponse(
+						"--source is not applicable to :GameObject (it has no prefab-override serialization).");
+				var propName = parsed.Properties[0];
+				var propRes = GameObjectProxy.Get(go, propName);
+				if (!propRes.IsSuccess) return ErrorResponse.FromResult(propRes);
+				var goValue = propRes.Value;
+				if (format == "json")
+				{
+					return new SuccessResponse("", new Dictionary<string, object>
+					{
+						["path"]      = PathResolver.GetCanonicalPath(go),
+						["component"] = GameObjectProxy.PseudoTypeName,
+						["property"]  = propName,
+						["type"]      = "GameObjectProperty",
+						["value"]     = goValue,
+					});
+				}
+				return new SuccessResponse("", FormatPipeFriendly(goValue));
+			}
+
 			var compResult = PathResolver.ResolveComponent(go, parsed.Component);
 			if (!compResult.IsSuccess) return ErrorResponse.FromResult(compResult);
 			var component = compResult.Value;

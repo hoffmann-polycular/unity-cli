@@ -11,6 +11,7 @@ tools (pipes, `jq`, `xargs`, `grep`, `awk`).
 - [Philosophy](#philosophy)
 - [Architecture](#architecture)
 - [Path Grammar](#path-grammar)
+  - [`:GameObject` Pseudo-Component](#gameobject-pseudo-component)
 - [Reference Resolution](#reference-resolution)
 - [Output Formats](#output-formats)
 - [Command Reference](#command-reference)
@@ -243,6 +244,40 @@ Cardinality mismatch is a hard error (exit code 2) listing both expansions.
   introduces ambiguity.
 - **`#<id>`** — always resolves to one exact object, regardless of hierarchy
   reorders. Useful for scripts pinning an object across multiple operations.
+
+### `:GameObject` Pseudo-Component
+
+The reserved component name `GameObject` exposes the core object fields that
+appear in Unity's Inspector top strip — before the component list — as
+readable/writable properties through the normal path grammar.
+
+| Property           | Type   | R/W | Description                                               |
+|--------------------|--------|-----|-----------------------------------------------------------|
+| `name`             | string | R/W | Object name shown in the Hierarchy                        |
+| `activeSelf`       | bool   | R/W | Local active flag (calls `SetActive`). Alias: `active`    |
+| `activeInHierarchy`| bool   | R   | True when the object **and** all ancestors are active     |
+| `tag`              | string | R/W | Unity tag — must be registered in Tag Manager             |
+| `layer`            | int    | R/W | Layer index. Accepts a layer **name** string or `0–31`    |
+| `layerName`        | string | R   | Human-readable name of the current layer                  |
+| `isStatic`         | bool   | R/W | Static flag (all static sub-flags set or cleared together)|
+| `instanceId`       | int    | R   | Stable instance ID — same value as `#id` addressing       |
+
+Property names are matched case-insensitively with `_` and `-` stripped, so
+`active_self`, `activeSelf`, and `active-self` are all accepted.
+
+```bash
+unity-cli get    /Player:GameObject.name
+unity-cli get    /Player:GameObject.activeSelf
+unity-cli set    /Player:GameObject.activeSelf false
+unity-cli set    /Player:GameObject.layer "UI"        # layer name string
+unity-cli set    /Player:GameObject.layer 5           # or int
+unity-cli set    /Player:GameObject.name "Hero"
+unity-cli inspect /Player:GameObject                  # show all fields
+unity-cli inspect /Player:GameObject.tag              # single field
+
+# Fan-out: set all selected objects active in one call
+unity-cli set :GameObject.activeSelf true
+```
 
 ### Sub-asset access (`//`)
 
@@ -857,6 +892,10 @@ unity-cli inspect World/Player
 unity-cli inspect World/Player:Transform
 unity-cli inspect World/Enemy[0] --overrides-only
 unity-cli inspect World/Player --json | jq '.Transform.localPosition'
+
+# :GameObject pseudo-component — name, active state, tag, layer, isStatic
+unity-cli inspect World/Player:GameObject
+unity-cli inspect World/Player:GameObject.activeSelf
 ```
 
 ---
@@ -886,6 +925,12 @@ unity-cli get World/Player:Rigidbody.mass
 unity-cli get World/Player:Transform.position
 unity-cli get World/Player:Transform.position.x
 unity-cli get World/Enemy:AIScript.target | unity-cli inspect
+
+# :GameObject pseudo-component
+unity-cli get World/Player:GameObject.name
+unity-cli get World/Player:GameObject.activeSelf
+unity-cli get World/Player:GameObject.tag
+unity-cli get World/Player:GameObject.layer
 ```
 
 ---
@@ -916,6 +961,13 @@ unity-cli set World/Player:MeshRenderer.material Assets/Materials/Metal.mat
 unity-cli set World/Enemy:AIScript.target World/Player
 unity-cli set World/Enemy:AIScript.target null
 unity-cli get World/A:Transform.position | unity-cli set World/B:Transform.position
+
+# :GameObject pseudo-component
+unity-cli set World/Player:GameObject.activeSelf false
+unity-cli set World/Player:GameObject.name "Hero"
+unity-cli set World/Player:GameObject.tag "Player"
+unity-cli set World/Player:GameObject.layer "UI"
+unity-cli set :GameObject.isStatic true          # fan-out: all selected objects
 ```
 
 ---
@@ -1399,6 +1451,35 @@ done
 # Add BoxCollider to anything with a MeshRenderer but no collider
 unity-cli find --component MeshRenderer --missing Collider --plain | \
     xargs -I{} unity-cli component add {} BoxCollider
+```
+
+### Activating, renaming, and tagging objects
+
+```bash
+# Disable all UI panels at once
+unity-cli find /UI --component Canvas --plain | \
+    xargs -I{} unity-cli set {}:GameObject.activeSelf false
+
+# Re-enable them
+unity-cli find /UI --component Canvas --plain | \
+    xargs -I{} unity-cli set {}:GameObject.activeSelf true
+
+# Rename all "Enemy_*" objects and assign the Enemy tag
+unity-cli find --name "Enemy_*" --plain | while read p; do
+    unity-cli set "$p:GameObject.tag" "Enemy"
+done
+
+# Move everything on the "Temp" layer back to Default
+unity-cli find --layer Temp --plain | \
+    xargs -I{} unity-cli set {}:GameObject.layer Default
+
+# Mark all selected objects as static in one call
+unity-cli set :GameObject.isStatic true
+
+# Quick read without full inspect
+unity-cli get /Player:GameObject.name
+unity-cli get /Player:GameObject.activeSelf
+unity-cli get /Player:GameObject.tag
 ```
 
 ### References

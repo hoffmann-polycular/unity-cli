@@ -107,6 +107,20 @@ namespace UnityCliConnector.Tools
 
 			foreach (var go in targets)
 			{
+				// :GameObject pseudo-component — bypass SerializedObject entirely.
+				if (GameObjectProxy.Is(parsed.Component.TypeName))
+				{
+					var propName = parsed.Properties[0];
+					var setRes = GameObjectProxy.Set(go, propName, rawValue);
+					if (!setRes.IsSuccess)
+					{
+						errors.Add($"{PathResolver.GetCanonicalPath(go)}: {setRes.ErrorMessage}");
+						continue;
+					}
+					applied.Add(setRes.Value);
+					continue;
+				}
+
 				var compResult = PathResolver.ResolveComponent(go, parsed.Component);
 				if (!compResult.IsSuccess) { errors.Add($"{PathResolver.GetCanonicalPath(go)}: {compResult.ErrorMessage}"); continue; }
 				var component = compResult.Value;
