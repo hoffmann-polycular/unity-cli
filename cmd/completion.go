@@ -161,7 +161,7 @@ func computeCandidates(idx int, words []string, current string) []string {
 
 var topLevelCommands = []string{
 	"editor", "test", "exec", "ls", "find", "inspect", "get", "set",
-	"component", "select", "create", "delete", "cp", "mv", "reorder",
+	"component", "select", "create", "rm", "cp", "mv", "reorder",
 	"prefab", "console", "menu", "screenshot", "reserialize",
 	"profiler", "status", "list", "update", "version", "help", "completion",
 }
@@ -172,7 +172,7 @@ var subcommands = map[string][]string{
 	"component":  {"list", "add", "remove"},
 	"profiler":   {"hierarchy", "enable", "disable", "status", "clear"},
 	"completion": {"bash", "zsh", "fish", "powershell"},
-	"help":       {"editor", "ls", "find", "inspect", "get", "set", "component", "select", "create", "delete", "cp", "mv", "reorder", "prefab", "console", "menu", "exec", "screenshot", "reserialize", "profiler", "test", "status", "list", "update", "custom-tools", "setup"},
+	"help":       {"editor", "ls", "find", "inspect", "get", "set", "component", "select", "create", "rm", "cp", "mv", "reorder", "prefab", "console", "menu", "exec", "screenshot", "reserialize", "profiler", "test", "status", "list", "update", "custom-tools", "setup"},
 }
 
 var primitiveTypes = []string{
@@ -223,7 +223,7 @@ var commandFlags = map[string][]string{
 	"set":        {"--all", "--value", "--params"},
 	"select":     {"--get", "--add", "--clear", "--json"},
 	"create":     {"--prefab"},
-	"delete":     {"--all"},
+	"rm":         {},
 	"cp":         {"--depth", "--auto-suffix"},
 	"mv":         {},
 	"reorder":    {"--index", "--first", "--last", "--up", "--down", "--before", "--after"},
@@ -287,7 +287,7 @@ func positionalCandidates(cmd string, idx int, words []string, current string) [
 	posIdx := len(positionals) // index of the positional being completed
 
 	switch cmd {
-	case "ls", "inspect", "get", "delete", "select":
+	case "ls", "inspect", "get", "rm", "select":
 		return queryUnity("scene", current)
 	case "find":
 		// Positional 0 narrows the search:

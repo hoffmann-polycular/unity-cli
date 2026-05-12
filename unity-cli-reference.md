@@ -17,7 +17,7 @@ tools (pipes, `jq`, `xargs`, `grep`, `awk`).
 - [Command Reference](#command-reference)
   - Scene navigation: [ls](#ls), [find](#find), [inspect](#inspect), [select](#select)
   - Properties: [get](#get), [set](#set)
-  - Hierarchy mutation: [create](#create), [delete](#delete), [cp](#cp), [mv](#mv), [reorder](#reorder)
+  - Hierarchy mutation: [create](#create), [rm](#rm), [cp](#cp), [mv](#mv), [reorder](#reorder)
   - Components: [component](#component)
   - Prefabs: [prefab](#prefab)
   - Editor control: [editor](#editor), [console](#console), [menu](#menu), [screenshot](#screenshot), [reserialize](#reserialize), [profiler](#profiler), [test](#test), [status](#status), [list](#list)
@@ -127,7 +127,7 @@ Existing structured tools (`editor`, `console`, `menu`, `screenshot`,
 profiler sampler, Test Framework, etc.).
 
 Structured scene/project tools (`ls`, `find`, `inspect`, `get`, `set`,
-`component`, `create`, `delete`, `cp`, `mv`, `reorder`, `prefab`, …) mutate
+`component`, `create`, `rm`, `cp`, `mv`, `reorder`, `prefab`, …) mutate
 state through Unity's own APIs (`SerializedObject` +
 `ApplyModifiedProperties`, `AssetDatabase`, `PrefabUtility`, `Undo`,
 `PrefabStageUtility`) — matching exactly what clicking in the Inspector /
@@ -744,7 +744,7 @@ with `[UnityCliTool(Name = "my_name")]`. Parameters are declared via a nested
 full template.
 
 All planned commands below (`ls`, `find`, `inspect`, `get`, `set`,
-`component`, `select`, `create`, `delete`, `cp`, `mv`, `reorder`,
+`component`, `select`, `create`, `rm`, `cp`, `mv`, `reorder`,
 `prefab`) will be implemented on top of this same mechanism — one
 `[UnityCliTool]` class per tool, plus Go-side wrappers where piping/polling
 ergonomics demand it.
@@ -1055,24 +1055,25 @@ unity-cli create --prefab Assets/Prefabs/Enemy.prefab World/Enemies/Enemy_01
 
 ---
 
-### `delete`
+### `rm`
 
 ✅ **Implemented**
 
 Destroy a GameObject (and its children).
 
 ```
-unity-cli delete <path> [--all]
+unity-cli rm <path>
 ```
 
 **Options:**
-- `--all` — broadcast when path is ambiguous.
 - Accepts paths on stdin (one per line) for batch deletion.
 
 **Examples:**
 ```bash
-unity-cli delete World/Enemies/OldSpawn
-unity-cli find --name "Temp_*" --plain | xargs -I{} unity-cli delete {}
+unity-cli rm World/Enemies/OldSpawn
+unity-cli rm .                                          # delete the selection
+unity-cli find --name "Temp_*" --plain | unity-cli rm
+unity-cli ls World/Enemies --plain | unity-cli rm
 ```
 
 ---

@@ -41,7 +41,7 @@ namespace UnityCliConnector.Tools
 	///   - Every delete is registered with Undo, all collapsed into one
 	///     group so a single Ctrl-Z reverses the operation.
 	/// </summary>
-	[UnityCliTool(Name = "delete",
+	[UnityCliTool(Name = "rm",
 		Description = "Destroy GameObjects. Fan-out across selection is implicit; multiple paths via positionals or stdin.")]
 	public static class Delete
 	{
@@ -62,7 +62,7 @@ namespace UnityCliConnector.Tools
 			// Wrap the whole operation in a single Undo group.
 			var undoGroup = Undo.GetCurrentGroup();
 			Undo.IncrementCurrentGroup();
-			Undo.SetCurrentGroupName("delete");
+			Undo.SetCurrentGroupName("rm");
 
 			// If we have positional args (from batch / stdin), delete each.
 			if (args != null && args.Count > 0)
@@ -74,7 +74,7 @@ namespace UnityCliConnector.Tools
 
 			// Single path mode (which may still fan out across selection).
 			if (string.IsNullOrWhiteSpace(singlePath))
-				return new ErrorResponse("delete requires a path, or pass paths on stdin for batch deletion.");
+				return new ErrorResponse("rm requires a path, or pass paths on stdin for batch deletion.");
 
 			var parseResult = PathParser.Parse(singlePath);
 			if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
@@ -138,7 +138,7 @@ namespace UnityCliConnector.Tools
 			if (errors.Count > 0)
 				data["errors"] = errors;
 
-			var msg = $"Batch delete: {deleted.Count} object(s)";
+			var msg = $"Batch rm: {deleted.Count} object(s)";
 			if (errors.Count > 0) msg += $", {errors.Count} failed";
 			msg += ".";
 

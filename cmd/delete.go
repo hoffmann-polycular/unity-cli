@@ -32,24 +32,19 @@ import (
 	"github.com/youngwoocho02/unity-cli/internal/client"
 )
 
-// deleteCmd destroys GameObjects by path. Under v3, fan-out across the current
-// selection is implicit, so the legacy --all flag is no longer needed.
-// Multiple paths may be supplied as positionals or piped on stdin.
+// rmCmd destroys GameObjects by path. Under v3, fan-out across the current
+// selection is implicit. Multiple paths may be supplied as positionals or
+// piped on stdin.
 //
 // Forms:
 //
-//	delete .                      delete the current selection (one or many)
-//	delete /World/Old             delete a single absolute path
-//	find ... --plain | delete     batch mode: delete each path from stdin
-func deleteCmd(args []string, send sendFn) (*client.CommandResponse, error) {
+//	rm .                      delete the current selection (one or many)
+//	rm /World/Old             delete a single absolute path
+//	find ... --plain | rm     batch mode: delete each path from stdin
+func rmCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	// Pull positional path(s) if given.
 	var positionals []string
 	for _, a := range args {
-		// Tolerate (and silently drop) the obsolete --all flag for users who
-		// remember the old syntax — fan-out is now the default behavior.
-		if a == "--all" {
-			continue
-		}
 		positionals = append(positionals, a)
 	}
 
@@ -69,7 +64,7 @@ func deleteCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 		params["args"] = positionals
 	}
 
-	return send("delete", params)
+	return send("rm", params)
 }
 
 func readStdinPaths() []string {

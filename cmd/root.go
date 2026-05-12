@@ -196,8 +196,8 @@ func Execute() error {
 		resp, err = selectCmd(subArgs, send)
 	case "create":
 		resp, err = createCmd(subArgs, send)
-	case "delete":
-		resp, err = deleteCmd(subArgs, send)
+	case "rm":
+		resp, err = rmCmd(subArgs, send)
 	case "cp":
 		resp, err = cpCmd(subArgs, send)
 	case "mv":
@@ -454,9 +454,9 @@ Scene:
   create Empty <p>/<name>       Create empty GameObject
   create Cube <p>/<name>        Create primitive (Cube, Sphere, ...)
   create --prefab <asset> <p>   Instantiate prefab instance
-  delete <path>                 Destroy a GameObject and its children
-  delete .                      Destroy the current selection (fan-out)
-  find ... --plain | delete     Batch delete via stdin (one path per line)
+  rm <path>                     Destroy a GameObject and its children
+  rm .                          Destroy the current selection (fan-out)
+  find ... --plain | rm         Batch delete via stdin (one path per line)
   cp <src> <parent>/<name>      Copy a GameObject to a new location
   cp <src> <parent>/            Copy under parent, keep source name
   cp <src> /<name>              Copy at the scene root (no parent)
@@ -767,10 +767,10 @@ Notes:
   - open changes Editor state — subsequent unity-cli calls in the same
     Unity instance see the prefab stage. close restores the previous stage.
 `)
-	case "delete":
-		fmt.Print(`Usage: unity-cli delete <path>
-       echo <path> | unity-cli delete
-       find ... --plain | unity-cli delete
+	case "rm":
+		fmt.Print(`Usage: unity-cli rm <path>
+       echo <path> | unity-cli rm
+       find ... --plain | unity-cli rm
 
 Destroy GameObjects (and their children).
 
@@ -779,16 +779,16 @@ deletes every resolved object. All deletions are wrapped in a single Undo
 group — one Ctrl-Z reverses the operation.
 
 Modes:
-  delete .                    Destroy the current selection (one or many).
-  delete ./Temp               Destroy each selection's Temp child.
-  delete /World/Enemies/Old   Destroy a single absolute path.
-  delete (stdin)              Batch mode: read paths from stdin, delete each.
+  rm .                    Destroy the current selection (one or many).
+  rm ./Temp               Destroy each selection's Temp child.
+  rm /World/Enemies/Old   Destroy a single absolute path.
+  rm (stdin)              Batch mode: read paths from stdin, delete each.
 
 Examples:
-  unity-cli delete .                                     # delete the selection
-  unity-cli delete /World/Enemies/OldSpawn
-  unity-cli find --name "Temp_*" --plain | unity-cli delete
-  unity-cli ls /World/Enemies --plain | unity-cli delete
+  unity-cli rm .                                     # delete the selection
+  unity-cli rm /World/Enemies/OldSpawn
+  unity-cli find --name "Temp_*" --plain | unity-cli rm
+  unity-cli ls /World/Enemies --plain | unity-cli rm
 
 Notes:
   - Destroying a GameObject automatically destroys all its children.
