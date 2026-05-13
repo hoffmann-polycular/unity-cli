@@ -65,28 +65,38 @@ namespace UnityCliConnector.Tools
 			var prefabArg = p.Get("prefab");
 
 			if (string.IsNullOrWhiteSpace(pathArg))
-				return new ErrorResponse("create requires a path (parentpath/name).");
+				return new ErrorResponse("create requires a path (parentpath/name, or /name for scene root).");
 
 			// Parse path into parent and name.
+			//   "World/Enemies/Foo"  → parent="World/Enemies", name="Foo"
+			//   "/Foo"               → parent="", name="Foo"   (scene root)
+			//   "/"                  → empty name, reject
+			//   "Foo"                → reject (need an explicit parent or leading slash)
 			var lastSlash = pathArg.LastIndexOf('/');
 			if (lastSlash < 0)
-				return new ErrorResponse("Path must be in format 'parentpath/name' (at least one slash).");
+				return new ErrorResponse(
+					"Path must include a parent. Use 'parent/name', or '/name' to create at the scene root.");
 
 			var parentPath = pathArg.Substring(0, lastSlash);
 			var name = pathArg.Substring(lastSlash + 1);
+			if (string.IsNullOrEmpty(name))
+				return new ErrorResponse("Name segment is empty. Use 'parent/name' or '/name'.");
 
-			if (string.IsNullOrEmpty(parentPath) || string.IsNullOrEmpty(name))
-				return new ErrorResponse("Both parent path and name must be non-empty.");
-
-			// Resolve parent GameObject.
-			var parseResult = PathParser.Parse(parentPath);
-			if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
-
-			var parentRes = PathResolver.ResolveGameObject(parseResult.Value);
-			if (!parentRes.IsSuccess) return ErrorResponse.FromResult(parentRes);
-			var parent = parentRes.Value;
+			// Empty parentPath = scene root (single leading slash). Null `parent`
+			// signals "no GameObject parent — root the new object directly under
+			// the active scene." Matches cp/mv's scene-root semantics.
+			GameObject parent = null;
+			if (!string.IsNullOrEmpty(parentPath))
+			{
+				var parseResult = PathParser.Parse(parentPath);
+				if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
+				var parentRes = PathResolver.ResolveGameObject(parseResult.Value);
+				if (!parentRes.IsSuccess) return ErrorResponse.FromResult(parentRes);
+				parent = parentRes.Value;
+			}
 
 			GameObject created = null;
+			var parentTransform = parent != null ? parent.transform : null;
 
 			if (!string.IsNullOrEmpty(prefabArg))
 			{
@@ -95,7 +105,7 @@ namespace UnityCliConnector.Tools
 				if (prefab == null)
 					return new ErrorResponse($"Prefab not found at '{prefabArg}'.");
 
-				created = PrefabUtility.InstantiatePrefab(prefab, parent.transform) as GameObject;
+				created = PrefabUtility.InstantiatePrefab(prefab, parentTransform) as GameObject;
 				if (created == null)
 					return new ErrorResponse($"Failed to instantiate prefab '{prefabArg}'.");
 				created.name = name;
@@ -105,7 +115,7 @@ namespace UnityCliConnector.Tools
 			{
 				// Create empty GameObject.
 				created = new GameObject(name);
-				created.transform.SetParent(parent.transform);
+				if (parentTransform != null) created.transform.SetParent(parentTransform);
 				Undo.RegisterCreatedObjectUndo(created, $"Create Empty {name}");
 			}
 			else
@@ -121,25 +131,32 @@ namespace UnityCliConnector.Tools
 					return new ErrorResponse($"Failed to create primitive '{typeArg}'.");
 
 				created.name = name;
-				created.transform.SetParent(parent.transform);
+				if (parentTransform != null) created.transform.SetParent(parentTransform);
 				Undo.RegisterCreatedObjectUndo(created, $"Create primitive {name}");
 			}
 
-			EditorUtility.SetDirty(parent);
+			if (parent != null) EditorUtility.SetDirty(parent);
 			EditorUtility.SetDirty(created);
 
 			var canonicalPath = PathResolver.GetCanonicalPath(created);
+			var format = (p.Get("format") ?? "plain").ToLowerInvariant();
 
-			var data = new Dictionary<string, object>
+			// Pipe-friendly default: response data is the canonical path so
+			// `create … | set …`, `create … | component add … <type>`, etc.
+			// work as the help text promises. `--json` opts into the full
+			// record for tooling.
+			if (format == "json")
 			{
-				["path"] = canonicalPath,
-				["name"] = name,
-				["parent"] = PathResolver.GetCanonicalPath(parent),
-				["type"] = typeArg ?? "prefab",
-				["instanceId"] = created.GetInstanceID(),
-			};
-
-			return new SuccessResponse(canonicalPath, data);
+				return new SuccessResponse(canonicalPath, new Dictionary<string, object>
+				{
+					["path"] = canonicalPath,
+					["name"] = name,
+					["parent"] = parent != null ? PathResolver.GetCanonicalPath(parent) : "/",
+					["type"] = typeArg ?? "prefab",
+					["instanceId"] = created.GetInstanceID(),
+				});
+			}
+			return new SuccessResponse(canonicalPath, canonicalPath);
 		}
 
 		private static PrimitiveType? ParsePrimitiveType(string name)

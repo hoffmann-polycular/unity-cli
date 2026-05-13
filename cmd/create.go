@@ -45,6 +45,19 @@ func createCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 		return nil, fmt.Errorf("usage: unity-cli create <type|--prefab> <parentpath>/<name>")
 	}
 
+	// Peel --json out so it doesn't end up as a positional or get swallowed
+	// by --prefab's value slot.
+	jsonFormat := false
+	stripped := make([]string, 0, len(args))
+	for _, a := range args {
+		if a == "--json" {
+			jsonFormat = true
+			continue
+		}
+		stripped = append(stripped, a)
+	}
+	args = stripped
+
 	// Parse: [type, path] or [--prefab, assetpath, path]
 	var typeArg, pathArg, prefabArg string
 
@@ -72,6 +85,9 @@ func createCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	}
 	if prefabArg != "" {
 		params["prefab"] = prefabArg
+	}
+	if jsonFormat {
+		params["format"] = "json"
 	}
 
 	return send("create", params)

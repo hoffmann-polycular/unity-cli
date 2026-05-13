@@ -8,7 +8,7 @@ are the friction points worth fixing, ordered roughly by impact.
 
 ## Critical
 
-### 1. `create` can't create scene-root objects
+### 1. `create` can't create scene-root objects ✅ FIXED
 
 `unity-cli create Empty /TestRoot` fails with **"Both parent path and name must
 be non-empty"**. The command requires `<parent>/<name>` format, so there's no
@@ -209,7 +209,7 @@ $ unity-cli find --component Renderer --plain | wc -l
 useful behavior, but it's undocumented. Add a one-line note to `find`
 docs: "Component filter is `is-a`, not `==` — base types match subclasses."
 
-### 13. `create` JSON `parent` field is empty for scene-root creations
+### 13. `create` JSON `parent` field is empty for scene-root creations ✅ FIXED
 
 When (post-fix) creating at scene root, the JSON response would have
 `parent: ""`. Should be `"/"` for symmetry with `get`/`inspect` output
