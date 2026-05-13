@@ -86,14 +86,26 @@ namespace UnityCliConnector.Tools
 			var add = p.GetBool("add");
 			var clear = p.GetBool("clear");
 
-			// --get: list currently selected objects' paths.
+			// --get: list currently selected objects' paths. Asset selections
+			// (Project window) emit their asset path; scene selections emit
+			// the canonical Hierarchy path. Round-trips with `select <input>`:
+			// whatever path you pass in is what you'll see back here.
 			if (get)
 			{
 				var paths = new List<string>();
 				foreach (var obj in Selection.objects)
 				{
+					if (obj == null) continue;
+					// Asset first — covers prefabs, textures, materials, scenes,
+					// scriptable objects, etc. selected in the Project window.
+					var assetPath = AssetDatabase.GetAssetPath(obj);
+					if (!string.IsNullOrEmpty(assetPath))
+					{
+						paths.Add(assetPath);
+						continue;
+					}
 					if (obj is GameObject go) paths.Add(PathResolver.GetCanonicalPath(go));
-					else if (obj is Component c && c != null) paths.Add(PathResolver.GetCanonicalPath(c.gameObject));
+					else if (obj is Component c) paths.Add(PathResolver.GetCanonicalPath(c.gameObject));
 				}
 				var output = string.Join("\n", paths);
 				return new SuccessResponse(output.Length == 0 ? "(no selection)" : "", output);
@@ -113,21 +125,49 @@ namespace UnityCliConnector.Tools
 			// anchored paths are resolved against the selection AS IT EXISTS
 			// AT THE START of the call — we snapshot once so a multi-positional
 			// invocation doesn't see its own intermediate selection edits.
+			//
+			// Asset paths (`Assets/...` / `Packages/...`) without a sub-asset
+			// or component suffix are handled separately: they select the
+			// asset itself in the Project window (the natural Unity behaviour)
+			// rather than the in-memory prefab-root GameObject that the
+			// fan-out resolver would otherwise return for prefab assets only.
 			var snapshotBefore = PathResolver.SelectionSnapshot();
-			var resolved = new List<GameObject>();
+			var resolvedObjects = new List<UnityEngine.Object>();
+			var resolvedPaths = new List<string>();
 			var errors = new List<string>();
 			foreach (var path in positional)
 			{
 				var parseResult = PathParser.Parse(path);
 				if (!parseResult.IsSuccess) { errors.Add($"{path}: {parseResult.ErrorMessage}"); continue; }
+				var parsed = parseResult.Value;
 
-				var targetsRes = PathResolver.ResolveTargets(parseResult.Value);
+				// Asset-path with no inner-segment / component → select the asset.
+				if (parsed.Kind == PathKind.Asset
+					&& (parsed.Segments == null || parsed.Segments.Count == 0)
+					&& !parsed.Component.IsPresent)
+				{
+					var asset = AssetDatabase.LoadMainAssetAtPath(parsed.AssetPath);
+					if (asset == null)
+					{
+						errors.Add($"{path}: asset not found.");
+						continue;
+					}
+					resolvedObjects.Add(asset);
+					resolvedPaths.Add(parsed.AssetPath);
+					continue;
+				}
+
+				var targetsRes = PathResolver.ResolveTargets(parsed);
 				if (!targetsRes.IsSuccess) { errors.Add($"{path}: {targetsRes.ErrorMessage}"); continue; }
 
-				resolved.AddRange(targetsRes.Value);
+				foreach (var go in targetsRes.Value)
+				{
+					resolvedObjects.Add(go);
+					resolvedPaths.Add(PathResolver.GetCanonicalPath(go));
+				}
 			}
 
-			if (resolved.Count == 0)
+			if (resolvedObjects.Count == 0)
 			{
 				if (errors.Count > 0)
 					return new ErrorResponse(string.Join("\n", errors));
@@ -136,36 +176,43 @@ namespace UnityCliConnector.Tools
 
 			// Dedup while preserving first-seen order.
 			var dedup = new List<UnityEngine.Object>();
+			var dedupPaths = new List<string>();
 			var seen = new HashSet<int>();
-			void Push(UnityEngine.Object o)
+			void Push(UnityEngine.Object o, string p)
 			{
 				if (o == null) return;
 				var id = o.GetInstanceID();
-				if (seen.Add(id)) dedup.Add(o);
+				if (!seen.Add(id)) return;
+				dedup.Add(o);
+				if (p != null) dedupPaths.Add(p);
 			}
 
 			if (add)
 			{
 				// Start from current selection, then add resolved targets.
-				foreach (var s in Selection.objects) Push(s);
+				foreach (var s in Selection.objects)
+				{
+					if (s == null) continue;
+					var existingPath = AssetDatabase.GetAssetPath(s);
+					if (string.IsNullOrEmpty(existingPath) && s is GameObject existingGo)
+						existingPath = PathResolver.GetCanonicalPath(existingGo);
+					Push(s, existingPath);
+				}
 			}
-			foreach (var go in resolved) Push(go);
+			for (var i = 0; i < resolvedObjects.Count; i++)
+				Push(resolvedObjects[i], i < resolvedPaths.Count ? resolvedPaths[i] : null);
 
 			Selection.objects = dedup.ToArray();
 
-			var canonicalPaths = new List<string>(resolved.Count);
-			foreach (var go in resolved)
-				canonicalPaths.Add(PathResolver.GetCanonicalPath(go));
-
 			var verb = add ? "Added" : "Selected";
-			var msg = canonicalPaths.Count == 1
-				? $"{verb} {canonicalPaths[0]}."
-				: $"{verb} {canonicalPaths.Count} object(s).";
+			var msg = dedupPaths.Count == 1
+				? $"{verb} {dedupPaths[0]}."
+				: $"{verb} {dedupPaths.Count} object(s).";
 			if (errors.Count > 0) msg += $" ({errors.Count} input(s) failed.)";
 
 			return new SuccessResponse(msg, new Dictionary<string, object>
 			{
-				["selected"] = canonicalPaths,
+				["selected"] = dedupPaths,
 				["errors"] = errors,
 				["snapshotBefore"] = snapshotBefore.Count,
 			});

@@ -58,7 +58,7 @@ record. Reduces friction enormously for chained workflows.
 
 ---
 
-### 3. `select Assets/Foo.prefab` works but `select --get` lies
+### 3. `select Assets/Foo.prefab` works but `select --get` lies ✅ FIXED
 
 ```
 $ unity-cli select 'Assets/00_App/Prefabs/FAQ Dummy.prefab'
