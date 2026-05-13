@@ -530,6 +530,17 @@ namespace UnityCliConnector
 			var direct = so.FindProperty(userName);
 			if (direct != null) return direct;
 
+			// Translate well-known C# accessors to their backing SO names
+			// (sharedMaterial → m_Materials, etc.). Avoids the discoverability
+			// trap where the typed property name a Unity dev expects doesn't
+			// match the underlying serialized field.
+			var aliased = AliasUserName(userName);
+			if (aliased != null)
+			{
+				var aliasResult = so.FindProperty(aliased);
+				if (aliasResult != null) return aliasResult;
+			}
+
 			var pascal = "m_" + char.ToUpperInvariant(userName[0]) + userName.Substring(1);
 			direct = so.FindProperty(pascal);
 			if (direct != null) return direct;
@@ -552,6 +563,13 @@ namespace UnityCliConnector
 			var direct = parent.FindPropertyRelative(userName);
 			if (direct != null) return direct;
 
+			var aliased = AliasUserName(userName);
+			if (aliased != null)
+			{
+				var aliasResult = parent.FindPropertyRelative(aliased);
+				if (aliasResult != null) return aliasResult;
+			}
+
 			var pascal = "m_" + char.ToUpperInvariant(userName[0]) + userName.Substring(1);
 			direct = parent.FindPropertyRelative(pascal);
 			if (direct != null) return direct;
@@ -566,6 +584,30 @@ namespace UnityCliConnector
 					return it.Copy();
 			}
 			return null;
+		}
+
+		/// <summary>
+		/// Map a user-typed C# accessor name to the underlying SerializedObject
+		/// field. Covers the common "Unity dev expects this to work" gaps where
+		/// the runtime API exposes a sugar accessor that's distinct from the
+		/// serialized backing — `sharedMaterial`/`material` resolve to the
+		/// `m_Materials` array's first slot via the array semantics already
+		/// handled downstream, `sharedMesh` resolves to `m_Mesh`, etc.
+		/// Returns null when no alias applies (caller falls through to its
+		/// normal lookup paths).
+		/// </summary>
+		private static string AliasUserName(string userName)
+		{
+			switch (userName)
+			{
+				case "sharedMaterial": return "m_Materials.Array.data[0]";
+				case "material":       return "m_Materials.Array.data[0]";
+				case "sharedMesh":     return "m_Mesh";
+				case "mesh":           return "m_Mesh";
+				case "sharedMaterials":return "m_Materials";
+				case "materials":      return "m_Materials";
+				default: return null;
+			}
 		}
 
 		public static string NormalizeSerializedName(string name)

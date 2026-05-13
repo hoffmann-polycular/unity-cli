@@ -101,7 +101,7 @@ all-or-nothing flip is the worst middle ground.
 
 ---
 
-### 5. C# accessors don't map to SerializedObject names — discoverability gap
+### 5. C# accessors don't map to SerializedObject names — discoverability gap ✅ FIXED
 
 `MeshRenderer.sharedMaterial` (singular) errors with **"No property
 'sharedMaterial' on MeshRenderer"**. Every Unity dev expects this name to
