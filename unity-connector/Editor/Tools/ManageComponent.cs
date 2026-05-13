@@ -69,6 +69,7 @@ namespace UnityCliConnector.Tools
 		{
 			var p = new ToolParams(@params);
 			var args = p.GetRaw("args") as JArray;
+			var paths = p.GetRaw("paths") as JArray;
 
 			// Positional layouts:
 			//   list   : [path]
@@ -81,12 +82,18 @@ namespace UnityCliConnector.Tools
 			if (string.IsNullOrEmpty(action))
 				return new ErrorResponse("component requires an action: list, add, or remove.");
 
-			var path = p.Get("path")
-				?? (args != null && args.Count > 1 ? args[1]?.ToString() : null);
 			var typeArg = p.Get("type")
 				?? (args != null && args.Count > 2 ? args[2]?.ToString() : null);
 			var format = (p.Get("format") ?? "human").ToLowerInvariant();
 
+			// Multi-path mode: stdin (Go-side) sends paths as a `paths` array.
+			// Each path resolves independently; their target sets union and run
+			// through the same fan-out loop the selection branch already uses.
+			if (paths != null && paths.Count > 0)
+				return DoMulti(action, paths, typeArg, format);
+
+			var path = p.Get("path")
+				?? (args != null && args.Count > 1 ? args[1]?.ToString() : null);
 			if (string.IsNullOrWhiteSpace(path))
 				return new ErrorResponse($"component {action} requires a GameObject path.");
 
@@ -164,6 +171,109 @@ namespace UnityCliConnector.Tools
 				["applied"] = applied,
 				["errors"] = errors,
 			});
+		}
+
+		// ---- multi-path entry (stdin / multi-arg) ----
+
+		// Iterate each input path independently, accumulating all resolved
+		// targets into one flat fan-out. Mutators (add/remove) share one Undo
+		// group; list emits per-target blocks. Per-path parse/resolve failures
+		// route to stderr without halting the rest (§4.6).
+		private static object DoMulti(string action, JArray paths, string typeArg, string format)
+		{
+			var allTargets = new List<GameObject>();
+			var errorLines = new List<string>();
+			foreach (var pathTok in paths)
+			{
+				var pathStr = pathTok?.ToString();
+				if (string.IsNullOrWhiteSpace(pathStr)) continue;
+				var parseRes = PathParser.Parse(pathStr);
+				if (!parseRes.IsSuccess)
+				{
+					errorLines.Add($"{pathStr}: {parseRes.ErrorMessage}");
+					continue;
+				}
+				var tr = PathResolver.ResolveTargets(parseRes.Value);
+				if (!tr.IsSuccess)
+				{
+					errorLines.Add($"{pathStr}: {tr.ErrorMessage}");
+					continue;
+				}
+				allTargets.AddRange(tr.Value);
+			}
+
+			if (allTargets.Count == 0)
+			{
+				return new ErrorResponse(
+					errorLines.Count == 0
+						? "No targets resolved from input paths."
+						: string.Join("\n", errorLines),
+					ErrorKind.NotFound);
+			}
+
+			if (action == "list")
+			{
+				var blocks = new List<object>(allTargets.Count);
+				foreach (var go in allTargets)
+				{
+					var single = DoList(go, format);
+					blocks.Add(single is SuccessResponse sr ? sr.data : single);
+				}
+				var resp = new SuccessResponse("", new Dictionary<string, object>
+				{
+					["count"] = allTargets.Count,
+					["targets"] = blocks,
+				});
+				if (errorLines.Count > 0)
+				{
+					resp.partialFailure = true;
+					resp.stderr = string.Join("\n", errorLines);
+				}
+				return resp;
+			}
+
+			if (action != "add" && action != "remove" && action != "rm")
+				return new ErrorResponse($"Unknown component action '{action}'. Use: list, add, remove.");
+
+			var undoGroup = Undo.GetCurrentGroup();
+			Undo.IncrementCurrentGroup();
+			Undo.SetCurrentGroupName($"component {action} (multi)");
+
+			var applied = new List<object>();
+			foreach (var go in allTargets)
+			{
+				object single = action == "add"
+					? DoAdd(go, typeArg, format)
+					: DoRemove(go, typeArg, format);
+				switch (single)
+				{
+					case SuccessResponse sr:
+						applied.Add(sr.data);
+						break;
+					case ErrorResponse er:
+						errorLines.Add($"{PathResolver.GetCanonicalPath(go)}: {er.message}");
+						break;
+				}
+			}
+			Undo.CollapseUndoOperations(undoGroup);
+
+			if (applied.Count == 0)
+				return new ErrorResponse(string.Join("\n", errorLines));
+
+			var msg = errorLines.Count == 0
+				? $"component {action} applied to {applied.Count} object(s)."
+				: $"component {action} applied to {applied.Count} object(s); {errorLines.Count} failed.";
+			var respMulti = new SuccessResponse(msg, new Dictionary<string, object>
+			{
+				["applied"] = applied,
+				["errors"] = errorLines,
+			});
+			if (errorLines.Count > 0)
+			{
+				respMulti.partialFailure = true;
+				respMulti.stderr = string.Join("\n", errorLines);
+			}
+			return respMulti;
 		}
 
 		// ---- list ----

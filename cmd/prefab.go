@@ -79,20 +79,35 @@ func prefabCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 		}
 	}
 
+	// For the actions that take a single GameObject target, stdin paths
+	// drive multi-path mode. If a positional starts with ":" it's a suffix
+	// appended to every piped path (e.g. `prefab apply :Rigidbody.mass`).
+	stdinPaths := readStdinPaths()
+	hasStdin := len(stdinPaths) > 0
+
 	switch action {
 	case "status":
+		if hasStdin && len(positionals) <= 1 {
+			return sendPrefabMulti(send, "status", buildPrefabMultiPaths(stdinPaths, positionals), passthrough)
+		}
 		if len(positionals) < 1 {
 			return nil, fmt.Errorf("usage: unity-cli prefab status <path>")
 		}
 		return sendPrefab(send, "status", positionals[0], "", passthrough)
 
 	case "diff":
+		if hasStdin && len(positionals) <= 1 {
+			return sendPrefabMulti(send, "diff", buildPrefabMultiPaths(stdinPaths, positionals), passthrough)
+		}
 		if len(positionals) < 1 {
 			return nil, fmt.Errorf("usage: unity-cli prefab diff <path>")
 		}
 		return sendPrefab(send, "diff", positionals[0], "", passthrough)
 
 	case "apply":
+		if hasStdin && len(positionals) <= 1 {
+			return sendPrefabMulti(send, "apply", buildPrefabMultiPaths(stdinPaths, positionals), passthrough)
+		}
 		if len(positionals) < 1 {
 			return nil, fmt.Errorf(
 				"usage: unity-cli prefab apply <path>[:Component[.prop]]")
@@ -100,6 +115,9 @@ func prefabCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 		return sendPrefab(send, "apply", positionals[0], "", passthrough)
 
 	case "revert":
+		if hasStdin && len(positionals) <= 1 {
+			return sendPrefabMulti(send, "revert", buildPrefabMultiPaths(stdinPaths, positionals), passthrough)
+		}
 		if len(positionals) < 1 {
 			return nil, fmt.Errorf(
 				"usage: unity-cli prefab revert <path>[:Component[.prop]]")
@@ -114,6 +132,9 @@ func prefabCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 		return sendPrefab(send, "create", positionals[0], positionals[1], passthrough)
 
 	case "unpack":
+		if hasStdin && len(positionals) == 0 {
+			return sendPrefabMulti(send, "unpack", stdinPaths, passthrough)
+		}
 		if len(positionals) < 1 {
 			return nil, fmt.Errorf(
 				"usage: unity-cli prefab unpack <path> [--completely]")
@@ -143,6 +164,38 @@ func prefabCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 			"unknown prefab action: %s\nAvailable: status, diff, apply, revert, create, unpack, variant, open, close",
 			action)
 	}
+}
+
+// buildPrefabMultiPaths combines stdin lines with an optional :suffix
+// positional. If positionals[0] starts with ":", it's appended to every
+// piped path (e.g. ":Rigidbody.mass" + "/A" → "/A:Rigidbody.mass").
+// Otherwise stdin lines are used unmodified.
+func buildPrefabMultiPaths(stdinPaths []string, positionals []string) []string {
+	suffix := ""
+	if len(positionals) >= 1 && len(positionals[0]) > 0 && positionals[0][0] == ':' {
+		suffix = positionals[0]
+	}
+	if suffix == "" {
+		return stdinPaths
+	}
+	out := make([]string, 0, len(stdinPaths))
+	for _, p := range stdinPaths {
+		out = append(out, p+suffix)
+	}
+	return out
+}
+
+func sendPrefabMulti(send sendFn, action string, paths []string, passthrough []string) (*client.CommandResponse, error) {
+	params, err := buildParams(passthrough, map[string]interface{}{
+		"action": action,
+		"paths":  paths,
+	})
+	if err != nil {
+		return nil, err
+	}
+	delete(params, "args")
+	delete(params, "path")
+	return send("prefab", params)
 }
 
 func sendPrefab(send sendFn, action, path, asset string, passthrough []string) (*client.CommandResponse, error) {

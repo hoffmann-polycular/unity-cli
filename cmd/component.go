@@ -31,7 +31,7 @@ import (
 )
 
 // componentCmd dispatches `component <action> <path> [<type>]` to the
-// `component` tool with named params, mirroring the editor.go pattern.
+// `component` tool with named params.
 //
 // Layouts:
 //
@@ -39,9 +39,15 @@ import (
 //	component add    <objectpath> <type>
 //	component remove <objectpath> <type>[<index>]
 //
-// We translate to named params (action / path / type) rather than rely
-// on positional `args`, so the help message from the C# side stays
-// unambiguous if the user hits an error.
+// Stdin (multi-path mode):
+//
+//	find ... --plain | unity-cli component add <type>
+//	find ... --plain | unity-cli component remove <type>[<n>]
+//	find ... --plain | unity-cli component list
+//
+// When stdin is piped and the path positional is omitted, each line is
+// treated as a GameObject path and the action is applied to every one.
+// Mutators share one Undo group.
 func componentCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	if len(args) == 0 {
 		return nil, fmt.Errorf("usage: unity-cli component <list|add|remove> <path> [<type>]")
@@ -58,9 +64,6 @@ func componentCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 		a := rest[i]
 		if len(a) > 1 && a[0] == '-' {
 			passthrough = append(passthrough, a)
-			// `--json` is the only bool flag we care about here; `--params`
-			// would also be valid. Either way, value flags carry their value
-			// in the next arg, which buildParams will pick up.
 			continue
 		}
 		positionals = append(positionals, a)
@@ -75,20 +78,33 @@ func componentCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 		}
 	}
 
+	stdinPaths := readStdinPaths()
+	hasStdin := len(stdinPaths) > 0
+
 	switch action {
 	case "list":
+		if hasStdin && len(positionals) == 0 {
+			return sendComponentMulti(send, "list", stdinPaths, "", passthrough)
+		}
 		if len(positionals) < 1 {
 			return nil, fmt.Errorf("usage: unity-cli component list <path>")
 		}
 		return sendComponent(send, "list", positionals[0], "", passthrough)
 
 	case "add":
+		// Multi-path: `component add <Type>` + stdin paths → 1 positional after action.
+		if hasStdin && len(positionals) == 1 {
+			return sendComponentMulti(send, "add", stdinPaths, positionals[0], passthrough)
+		}
 		if len(positionals) < 2 {
 			return nil, fmt.Errorf("usage: unity-cli component add <path> <type>")
 		}
 		return sendComponent(send, "add", positionals[0], positionals[1], passthrough)
 
 	case "remove", "rm":
+		if hasStdin && len(positionals) == 1 {
+			return sendComponentMulti(send, "remove", stdinPaths, positionals[0], passthrough)
+		}
 		if len(positionals) < 2 {
 			return nil, fmt.Errorf("usage: unity-cli component remove <path> <type>[<index>]")
 		}
@@ -113,5 +129,24 @@ func sendComponent(send sendFn, action, path, typeName string, passthrough []str
 	// `args` from buildParams is empty here (no positionals in passthrough),
 	// but strip defensively to keep the wire payload tight.
 	delete(params, "args")
+	return send("component", params)
+}
+
+// sendComponentMulti is the stdin/batch variant: each path resolves and
+// processes independently on the connector side, all mutators inside one
+// Undo group.
+func sendComponentMulti(send sendFn, action string, paths []string, typeName string, passthrough []string) (*client.CommandResponse, error) {
+	params, err := buildParams(passthrough, map[string]interface{}{
+		"action": action,
+		"paths":  paths,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if typeName != "" {
+		params["type"] = typeName
+	}
+	delete(params, "args")
+	delete(params, "path")
 	return send("component", params)
 }

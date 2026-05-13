@@ -68,6 +68,7 @@ namespace UnityCliConnector.Tools
 		{
 			var p = new ToolParams(@params);
 			var args = p.GetRaw("args") as JArray;
+			var paths = p.GetRaw("paths") as JArray;
 
 			// Positional layouts:
 			//   status / diff           : [action, path]
@@ -81,6 +82,13 @@ namespace UnityCliConnector.Tools
 				return new ErrorResponse("prefab requires an action: status, diff, apply, revert, create.");
 
 			var format = (p.Get("format") ?? "human").ToLowerInvariant();
+
+			// Multi-path mode (stdin or args[]): iterate each path through the
+			// same per-action handler. Supports the read actions (status, diff)
+			// and the mutators that take a single target (apply, revert, unpack).
+			// Mutators run inside one Undo group.
+			if (paths != null && paths.Count > 0)
+				return DoMulti(action, paths, p, format);
 
 			var path = p.Get("path")
 				?? (args != null && args.Count > 1 ? args[1]?.ToString() : null);
@@ -115,6 +123,95 @@ namespace UnityCliConnector.Tools
 					return new ErrorResponse(
 						$"Unknown prefab action '{action}'. Use: status, diff, apply, revert, create, unpack, variant, open, close.");
 			}
+		}
+
+		// =========================================================================
+		// multi-path entry (stdin / args[])
+		// =========================================================================
+
+		// Apply the same single-path action to every entry in `paths`. Read
+		// actions (status, diff) just collect results. Mutators (apply, revert,
+		// unpack) share one Undo group so a single Ctrl-Z reverses the whole
+		// batch. Per-path failures route to stderr without halting the rest.
+		private static object DoMulti(string action, JArray paths, ToolParams p, string format)
+		{
+			// Whitelist actions that make sense in multi-path mode. `create`,
+			// `variant`, `open`, `close` are single-target-only by construction
+			// (asset paths, stage open/close).
+			var isMutator = action == "apply" || action == "revert" || action == "unpack";
+			var isReader = action == "status" || action == "diff";
+			if (!isMutator && !isReader)
+				return new ErrorResponse(
+					$"prefab {action} does not support multi-path mode (try one path at a time).",
+					ErrorKind.Usage);
+
+			int undoGroup = 0;
+			if (isMutator)
+			{
+				undoGroup = Undo.GetCurrentGroup();
+				Undo.IncrementCurrentGroup();
+				Undo.SetCurrentGroupName($"prefab {action} (multi)");
+			}
+
+			var results = new List<object>();
+			var errorLines = new List<string>();
+			var successCount = 0;
+			foreach (var pathTok in paths)
+			{
+				var pathStr = pathTok?.ToString();
+				if (string.IsNullOrWhiteSpace(pathStr)) continue;
+
+				object single = action switch
+				{
+					"status" => DoStatus(pathStr, "json"),
+					"diff"   => DoDiff(pathStr, "json"),
+					"apply"  => DoApply(pathStr, "json"),
+					"revert" => DoRevert(pathStr, "json"),
+					"unpack" => DoUnpack(pathStr, p.GetBool("completely"), "json"),
+					_        => new ErrorResponse($"Unknown action '{action}'."),
+				};
+
+				switch (single)
+				{
+					case SuccessResponse sr:
+						results.Add(sr.data);
+						successCount++;
+						break;
+					case ErrorResponse er:
+						results.Add(new Dictionary<string, object>
+						{
+							["path"]  = pathStr,
+							["ok"]    = false,
+							["error"] = er.message,
+						});
+						errorLines.Add($"{pathStr}: {er.message}");
+						break;
+				}
+			}
+
+			if (isMutator) Undo.CollapseUndoOperations(undoGroup);
+
+			if (successCount == 0)
+				return new ErrorResponse(
+					errorLines.Count == 0
+						? $"prefab {action}: no paths produced a result."
+						: string.Join("\n", errorLines));
+
+			var msg = errorLines.Count == 0
+				? $"prefab {action} applied to {successCount} object(s)."
+				: $"prefab {action} applied to {successCount} object(s); {errorLines.Count} failed.";
+
+			var resp = new SuccessResponse(msg, new Dictionary<string, object>
+			{
+				["count"]   = paths.Count,
+				["results"] = results,
+			});
+			if (errorLines.Count > 0)
+			{
+				resp.partialFailure = true;
+				resp.stderr = string.Join("\n", errorLines);
+			}
+			return resp;
 		}
 
 		// =========================================================================

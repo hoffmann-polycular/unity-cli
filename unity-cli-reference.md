@@ -1026,6 +1026,24 @@ unity-cli component remove <objectpath> <type>[<index>]
   its index if it's a duplicate type).
 - `remove` on an ambiguous type without an index fails loudly.
 
+**Stdin (multi-path mode):**
+
+When stdin is piped and no `<path>` positional is given, each line is
+treated as a GameObject path and the action is applied to every one. All
+mutators share a single Undo group.
+
+```bash
+# Add BoxCollider to every MeshRenderer that lacks a collider
+unity-cli find --component MeshRenderer --missing Collider --plain | \
+    unity-cli component add BoxCollider
+
+# Remove a script from every selected enemy
+unity-cli select --get | unity-cli component remove DebugHelper
+
+# Audit components on a subtree
+unity-cli ls /UI --plain | unity-cli component list --json
+```
+
 **Examples:**
 ```bash
 unity-cli component list World/Player
@@ -1423,6 +1441,25 @@ unity-cli prefab close [--discard]
 ```
 
 `--discard` exits without saving.
+
+**Stdin (multi-path mode):**
+
+`status`, `diff`, `apply`, `revert`, and `unpack` accept stdin paths — one
+per line. If the positional starts with `:` it's appended to every piped
+path as a component/property suffix. Mutators share one Undo group.
+
+```bash
+# Diff every instance of a prefab against the asset
+unity-cli find --prefab Assets/Prefabs/Enemy.prefab --plain | \
+    unity-cli prefab diff
+
+# Apply just the mass override on every instance
+unity-cli find --prefab Assets/Prefabs/Enemy.prefab --plain | \
+    unity-cli prefab apply :Rigidbody.mass
+
+# Revert every dirty instance in one shot
+unity-cli find --has-overrides --plain | unity-cli prefab revert
+```
 
 **Examples:**
 ```bash
