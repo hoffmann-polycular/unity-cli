@@ -65,12 +65,17 @@ namespace UnityCliConnector.Tools
 			var pathParam = p.Get("path");
 			var sourceMode = p.GetBool("source");
 			var format = (p.Get("format") ?? "plain").ToLowerInvariant();
+			// --with-path: prefix every plain-mode line with `path:Component.prop`
+			// so multi-target reads have context without giving up `--plain`'s
+			// other ergonomics (no human-mode column alignment, single value
+			// per line). Spec §4.5 keeps the default unprefixed.
+			var withPath = p.GetBool("with_path");
 
 			// Multi-path mode: args has >1 entries → fan out across all of them.
 			// Each entry is an independent path with its own :Component.property
 			// suffix; their target sets union into one flat result list.
 			if (string.IsNullOrWhiteSpace(pathParam) && args != null && args.Count > 1)
-				return GetMulti(args, sourceMode, format);
+				return GetMulti(args, sourceMode, format, withPath);
 
 			var path = pathParam ?? (args != null && args.Count > 0 ? args[0]?.ToString() : null);
 
@@ -121,9 +126,9 @@ namespace UnityCliConnector.Tools
 					if (format != "json")
 					{
 						var rendered = FormatPipeFriendly(dict.TryGetValue("value", out var vv) ? vv : null);
-						if (format == "plain")
+						if (format == "plain" && !withPath)
 						{
-							// --plain: value only, no path prefix (§4.5).
+							// --plain default: value only, no path prefix (§4.5).
 							successLines.Add(rendered);
 						}
 						else
@@ -176,7 +181,7 @@ namespace UnityCliConnector.Tools
 		// then unify the per-target results into one fan-out response.
 		// Each path can have its own component/property suffix; errors on
 		// one path don't stop the others.
-		private static object GetMulti(JArray paths, bool sourceMode, string format)
+		private static object GetMulti(JArray paths, bool sourceMode, string format, bool withPath)
 		{
 			var entries = new List<object>();
 			var successLines = new List<string>();
@@ -217,7 +222,7 @@ namespace UnityCliConnector.Tools
 						if (format != "json")
 						{
 							var rendered = FormatPipeFriendly(impDict.TryGetValue("value", out var vv) ? vv : null);
-							if (format == "plain") successLines.Add(rendered);
+							if (format == "plain" && !withPath) successLines.Add(rendered);
 							else
 							{
 								var canon = impDict.TryGetValue("path", out var pp) ? pp?.ToString() : parsed.AssetPath;
@@ -266,7 +271,7 @@ namespace UnityCliConnector.Tools
 						if (format != "json")
 						{
 							var rendered = FormatPipeFriendly(dict.TryGetValue("value", out var vv) ? vv : null);
-							if (format == "plain")
+							if (format == "plain" && !withPath)
 							{
 								successLines.Add(rendered);
 							}

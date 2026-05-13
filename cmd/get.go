@@ -42,12 +42,15 @@ import (
 // piped path. Otherwise piped lines are used as-is.
 func getCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	// Translate --json to --format json so the wire param matches what the
-	// C# tool expects.
+	// C# tool expects. Also translate --with-path / -P to the snake-case
+	// param the C# tool reads.
 	rest := make([]string, 0, len(args))
 	for _, a := range args {
 		switch a {
 		case "--json":
 			rest = append(rest, "--format", "json")
+		case "--with-path", "-P":
+			rest = append(rest, "--with_path")
 		default:
 			rest = append(rest, a)
 		}

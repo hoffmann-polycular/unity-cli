@@ -1087,13 +1087,17 @@ Read a single property value. Scalar output by default, so composes with
 shell arithmetic.
 
 ```
-unity-cli get <path> [--source] [--json]
+unity-cli get <path> [--source] [--with-path|-P] [--json]
 ```
 
 **Options:**
 - `<path>` — must resolve to a single property (e.g. `:Rigidbody.mass`).
 - `--source` — for prefab instances, emit the prefab source value instead of
   the (possibly overridden) instance value.
+- `--with-path`, `-P` — prefix each plain-mode line with `path:Component.prop`.
+  Useful for multi-target reads where the values alone are ambiguous
+  (e.g. dumping intensities of every Light). Default keeps spec §4.5
+  scalar-only behaviour so `get | set` round-trips don't pick up prefixes.
 - Vector / compound properties emit space-separated components by default,
   JSON object with `--json`.
 - Reference properties emit a canonical path (so `get | inspect` chains).

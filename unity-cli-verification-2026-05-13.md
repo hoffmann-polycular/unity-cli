@@ -80,7 +80,7 @@ this is the read side.
 
 ## Significant
 
-### 4. Multi-target `get` (plain) emits values only — no way to tell which is which
+### 4. Multi-target `get` (plain) emits values only — no way to tell which is which ✅ FIXED
 
 ```
 $ unity-cli find --component Camera --plain | unity-cli get :Camera.fieldOfView
