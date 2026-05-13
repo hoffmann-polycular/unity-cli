@@ -163,6 +163,7 @@ var topLevelCommands = []string{
 	"editor", "test", "exec", "ls", "find", "inspect", "get", "set",
 	"component", "select", "create", "rm", "cp", "mv", "reorder",
 	"prefab", "scene", "console", "menu", "screenshot", "reserialize", "reimport",
+	"guid", "path",
 	"profiler", "status", "list", "update", "version", "help", "completion",
 }
 
@@ -232,6 +233,8 @@ var commandFlags = map[string][]string{
 	"console":    {"--lines", "--type", "--stacktrace", "--clear"},
 	"screenshot": {"--view", "--width", "--height", "--output-path", "-o"},
 	"reimport":   {"--recursive"},
+	"guid":       {"--json"},
+	"path":       {"--json"},
 	"test":       {"--mode", "--filter"},
 	"exec":       {"--usings", "--csc", "--dotnet"},
 	"editor":     {"--wait", "--compile"},
@@ -295,6 +298,9 @@ func positionalCandidates(cmd string, idx int, words []string, current string) [
 	switch cmd {
 	case "ls", "inspect", "get", "rm", "select":
 		return queryUnity("scene", current)
+	case "guid", "reimport":
+		// Both take asset paths.
+		return queryUnity("asset", current)
 	case "find":
 		// Positional 0 narrows the search:
 		//   "Assets/…" / "Packages/…" → asset-database scope

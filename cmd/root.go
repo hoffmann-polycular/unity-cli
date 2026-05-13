@@ -212,6 +212,10 @@ func Execute() error {
 		resp, err = screenshotCmd(subArgs, send)
 	case "reimport":
 		resp, err = reimportCmd(subArgs, send)
+	case "guid":
+		resp, err = guidCmd(subArgs, send)
+	case "path":
+		resp, err = pathCmd(subArgs, send)
 	default:
 		var params map[string]interface{}
 		params, err = buildParams(subArgs, nil)
@@ -546,6 +550,8 @@ Assets:
   find Assets/ --type Material          Filter by asset type
   find Assets/ --name "Metal*"          Filter by name
   find Assets/ --label MyLabel          Filter by asset label
+  guid <assetpath>...                   Asset path → GUID (one per line)
+  path <guid>...                        GUID → asset path
 
 Scene:
   scene list                            List loaded scenes (active marked with *)
@@ -1405,6 +1411,49 @@ Notes:
     one pass — significantly faster than reimporting each file individually.
   - Reimport is not undoable. (The Importer property writes that triggered
     it are; the resulting reimport is not.)
+`)
+	case "guid":
+		fmt.Print(`Usage: unity-cli guid <assetpath>...
+       find Assets/... --plain | unity-cli guid
+
+Translate an asset path to its GUID (a 32-char hex identifier Unity stores
+in the asset's .meta file and references everywhere from scenes, prefabs,
+and serialized fields).
+
+Output:
+  - Plain (default): one GUID per input line, in input order.
+  - --json: array of {input, output} records (errors get an 'error' field).
+
+Unresolvable inputs emit an empty line on stdout and a reason on stderr;
+exit code is non-zero when any input failed.
+
+Examples:
+  unity-cli guid Assets/Prefabs/Player.prefab
+  unity-cli guid Assets/Foo.png Assets/Bar.png
+  unity-cli find Assets/Scenes/ --type Scene --plain | unity-cli guid
+  unity-cli guid Assets/Foo.png --json | jq -r '.results[0].output'
+
+See also: unity-cli path <guid>   (the inverse direction).
+`)
+	case "path":
+		fmt.Print(`Usage: unity-cli path <guid>...
+       unity-cli guid Assets/Foo.png | unity-cli path
+
+Translate a GUID back to its asset path. Inverse of 'unity-cli guid'.
+
+Output:
+  - Plain (default): one asset path per input line, in input order.
+  - --json: array of {input, output} records (errors get an 'error' field).
+
+Inputs must be 32-char hex strings (lowercase or uppercase, no dashes —
+Unity stores GUIDs as 32 contiguous hex chars in .meta files).
+
+Examples:
+  unity-cli path 1a2b3c4d5e6f7081020304050607080a
+  unity-cli path $(unity-cli guid Assets/Foo.png)
+  cat scene-references.txt | unity-cli path     # one GUID per line
+
+See also: unity-cli guid <assetpath>   (the inverse direction).
 `)
 	case "reserialize":
 		fmt.Print(`Usage: unity-cli reserialize [path...]

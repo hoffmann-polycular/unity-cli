@@ -23,6 +23,7 @@ tools (pipes, `jq`, `xargs`, `grep`, `awk`).
   - Prefabs: [prefab](#prefab)
   - Scenes: [scene](#scene)
   - Editor control: [editor](#editor), [console](#console), [menu](#menu), [screenshot](#screenshot), [reserialize](#reserialize), [reimport](#reimport), [profiler](#profiler), [test](#test), [status](#status), [list](#list)
+  - Asset IDs: [guid](#guid), [path](#path)
   - Tooling: [exec](#exec), [update](#update), [completion](#completion), [Custom tools](#custom-tools)
 - [Common Usage Examples](#common-usage-examples)
 - [Tips and Tricks](#tips-and-tricks)
@@ -644,6 +645,69 @@ unity-cli reimport Assets/Foo.png
 unity-cli reimport Assets/Textures/ --recursive
 unity-cli reimport Assets/A.png Assets/B.png Assets/C.png
 unity-cli find Assets/Sprites/ --type Texture2D --plain | unity-cli reimport
+```
+
+---
+
+### `guid`
+
+✅ **Implemented**
+
+Translate an asset path to its GUID — the 32-char hex identifier Unity
+stores in the asset's `.meta` file and references everywhere (scenes,
+prefabs, serialized object refs).
+
+```
+unity-cli guid <assetpath>...
+find Assets/... --plain | unity-cli guid
+```
+
+**Options:**
+- Plain (default): one GUID per input line, in input order.
+- `--json`: array of `{input, output}` records; failures get an `error` field.
+
+Unresolvable inputs (asset doesn't exist) emit an empty line on stdout
+and a reason on stderr; exit code is non-zero when any input failed.
+
+**Examples:**
+```bash
+unity-cli guid Assets/Prefabs/Player.prefab
+unity-cli guid Assets/Foo.png Assets/Bar.png
+unity-cli find Assets/Scenes/ --type Scene --plain | unity-cli guid
+unity-cli guid Assets/Foo.png --json | jq -r '.results[0].output'
+```
+
+---
+
+### `path`
+
+✅ **Implemented**
+
+Translate a GUID back to its asset path. Inverse of `guid`.
+
+```
+unity-cli path <guid>...
+unity-cli guid <assetpath> | unity-cli path     # round-trip
+```
+
+**Options:**
+- Plain (default): one path per input line, in input order.
+- `--json`: array of `{input, output}` records.
+
+GUIDs are validated as 32-char hex strings before lookup; bad shapes
+produce a clear error rather than a silent miss. Inputs that pass shape
+validation but don't map to any asset in the current project emit an
+empty line on stdout and a reason on stderr (exit non-zero).
+
+**Examples:**
+```bash
+unity-cli path 1a2b3c4d5e6f7081020304050607080a
+
+# Audit references in a serialized scene file:
+grep -oE 'guid: [0-9a-f]{32}' Main.unity | awk '{print $2}' | unity-cli path
+
+# Round-trip
+unity-cli guid Assets/Foo.png | unity-cli path
 ```
 
 ---
