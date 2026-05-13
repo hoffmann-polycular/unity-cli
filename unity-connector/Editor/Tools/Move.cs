@@ -180,11 +180,15 @@ namespace UnityCliConnector.Tools
 				});
 			}
 
+			var format = (p.Get("format") ?? "plain").ToLowerInvariant();
+
 			if (srcs.Count == 1)
 			{
 				var single = entries.Count > 0 ? entries[0] : null;
 				var msg = stdoutLines.Count > 0 ? stdoutLines[0] : "";
-				var resp = new SuccessResponse(msg, single);
+				// Pipe-friendly default — see Copy.cs for the rationale.
+				object data = format == "json" ? (object)single : (object)msg;
+				var resp = new SuccessResponse(msg, data);
 				if (errorLines.Count > 0)
 				{
 					resp.partialFailure = true;

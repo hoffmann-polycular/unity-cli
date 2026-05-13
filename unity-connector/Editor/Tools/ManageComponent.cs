@@ -383,7 +383,9 @@ namespace UnityCliConnector.Tools
 			};
 
 			if (format == "json") return new SuccessResponse("", data);
-			return new SuccessResponse(canonicalPath, data);
+			// Pipe-friendly default: data is the new component's canonical
+			// path so `component add … | set …` and `… | inspect` work.
+			return new SuccessResponse(canonicalPath, canonicalPath);
 		}
 
 		// ---- remove ----
@@ -432,7 +434,9 @@ namespace UnityCliConnector.Tools
 			};
 
 			if (format == "json") return new SuccessResponse("", data);
-			return new SuccessResponse($"Removed {label} from {goPath}.", data);
+			// Pipe-friendly default: data is the GameObject path the
+			// component was removed from. Same shape as add for consistency.
+			return new SuccessResponse($"Removed {label} from {goPath}.", goPath);
 		}
 
 		// ---- helpers ----

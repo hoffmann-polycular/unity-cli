@@ -29,7 +29,7 @@ leading `/` followed by a name. Translate to the scene-root parent.
 
 ---
 
-### 2. `create` / `cp` / `mv` / `component add` etc. default to JSON, breaking the documented pipe pattern
+### 2. `create` / `cp` / `mv` / `component add` etc. default to JSON, breaking the documented pipe pattern ✅ FIXED
 
 Help for `create` says:
 

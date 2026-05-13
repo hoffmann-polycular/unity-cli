@@ -186,13 +186,17 @@ namespace UnityCliConnector.Tools
 				});
 			}
 
+			var format = (p.Get("format") ?? "plain").ToLowerInvariant();
+
 			if (srcs.Count == 1)
 			{
-				// Preserve the legacy single-target shape so existing callers
-				// keep working.
 				var single = entries.Count > 0 ? entries[0] : null;
 				var msg = stdoutLines.Count > 0 ? stdoutLines[0] : "";
-				var resp = new SuccessResponse(msg, single);
+				// Pipe-friendly default: data is the canonical path (string)
+				// so `cp X Y | set … …`, `cp X Y | select`, etc. work.
+				// `--json` opts into the full per-target record.
+				object data = format == "json" ? (object)single : (object)msg;
+				var resp = new SuccessResponse(msg, data);
 				if (errorLines.Count > 0)
 				{
 					resp.partialFailure = true;

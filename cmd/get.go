@@ -85,6 +85,21 @@ func getCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	return send("get", params)
 }
 
+// translateJSONFlag rewrites a bare `--json` to `--format json` so it
+// arrives at buildParams as a value flag (which buildParams understands).
+// Used by command wrappers that otherwise pass args straight to buildParams.
+func translateJSONFlag(args []string) []string {
+	out := make([]string, 0, len(args)+1)
+	for _, a := range args {
+		if a == "--json" {
+			out = append(out, "--format", "json")
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
 // splitPositionalFromFlags peels positional arguments off the front of an
 // arg list. A positional is any arg that doesn't start with "-" and isn't
 // the value of a preceding flag. Returns (positionals, remainingFlags).

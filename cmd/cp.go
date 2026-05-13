@@ -45,6 +45,7 @@ func cpCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	if len(args) < 2 {
 		return nil, fmt.Errorf("usage: unity-cli cp <src> <dst> [--depth N] [--auto-suffix [format]]\n  <dst> is 'parent/name' or 'parent/' (keep source name)")
 	}
+	args = translateJSONFlag(args)
 	params, err := buildParams(args, nil)
 	if err != nil {
 		return nil, err
