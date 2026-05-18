@@ -86,6 +86,11 @@ namespace UnityCliConnector.Tools
 			if (parsed.Kind == PathKind.ProjectSettings)
 				return InspectProjectSettings(parsed, format);
 
+			// Asset importer access. `:Importer` (alias) or a concrete subclass
+			// name → dump the importer's SerializedObject (or a single property).
+			if (parsed.Kind == PathKind.Asset && PathResolver.IsImporterComponent(parsed.Component))
+				return InspectImporter(parsed, format);
+
 			// All other kinds resolve to GameObject targets via the v3 fan-out resolver.
 			var targetsRes = PathResolver.ResolveTargets(parsed);
 			if (!targetsRes.IsSuccess) return ErrorResponse.FromResult(targetsRes);
@@ -142,6 +147,14 @@ namespace UnityCliConnector.Tools
 				{
 					var ps = InspectProjectSettings(parsed, format);
 					results.Add(WrapForFanOut(go: null, ps, format, fallbackPath: ProjectSettingsResolver.CanonicalPath(parsed.SettingsGroup)));
+					continue;
+				}
+
+				// Asset importer per-path.
+				if (parsed.Kind == PathKind.Asset && PathResolver.IsImporterComponent(parsed.Component))
+				{
+					var imp = InspectImporter(parsed, format);
+					results.Add(WrapForFanOut(go: null, imp, format, fallbackPath: parsed.AssetPath));
 					continue;
 				}
 
@@ -277,6 +290,66 @@ namespace UnityCliConnector.Tools
 		}
 
 		// ---- ProjectSettings view ----
+
+		// ---- Asset importer view ----
+
+		private static object InspectImporter(ParsedPath parsed, string format)
+		{
+			var impRes = PathResolver.ResolveAssetImporter(parsed);
+			if (!impRes.IsSuccess) return ErrorResponse.FromResult(impRes);
+			var importer = impRes.Value;
+
+			using var so = new SerializedObject(importer);
+
+			// With a property suffix → render the single property.
+			if (parsed.Properties != null && parsed.Properties.Count > 0)
+			{
+				var root = PathResolver.FindPropertyByUserName(so, parsed.Properties[0]);
+				if (root == null)
+					return new ErrorResponse(
+						$"No property '{parsed.Properties[0]}' on {importer.GetType().Name}.",
+						ErrorKind.NotFound);
+				var current = root;
+				for (var i = 1; i < parsed.Properties.Count; i++)
+				{
+					var next = PathResolver.FindRelativeByUserName(current, parsed.Properties[i]);
+					if (next == null)
+						return new ErrorResponse(
+							$"No sub-property '{parsed.Properties[i]}' under '{JoinProps(parsed.Properties, i)}'.",
+							ErrorKind.NotFound);
+					current = next;
+				}
+				var value = SerializedPropertyReader.Read(current);
+				if (format == "json")
+					return new SuccessResponse("", new Dictionary<string, object>
+					{
+						["path"] = parsed.AssetPath,
+						["component"] = importer.GetType().Name,
+						["property"] = JoinProps(parsed.Properties, parsed.Properties.Count),
+						["type"] = current.propertyType.ToString(),
+						["value"] = value,
+					});
+				var sb = new StringBuilder();
+				sb.Append(parsed.AssetPath).Append(':').Append(importer.GetType().Name)
+				  .Append('.').Append(JoinProps(parsed.Properties, parsed.Properties.Count)).Append('\n');
+				AppendValueHuman(value, sb, depth: 1);
+				return new SuccessResponse("", sb.ToString().TrimEnd('\n'));
+			}
+
+			// No property → dump all importer properties.
+			var props = SerializedPropertyReader.ReadAll(so, overridesOnly: false);
+			if (format == "json")
+				return new SuccessResponse("", new Dictionary<string, object>
+				{
+					["path"] = parsed.AssetPath,
+					["component"] = importer.GetType().Name,
+					["properties"] = props,
+				});
+			var hsb = new StringBuilder();
+			hsb.Append(parsed.AssetPath).Append(':').Append(importer.GetType().Name).Append('\n');
+			AppendPropsHuman(props, hsb, depth: 1);
+			return new SuccessResponse("", hsb.ToString().TrimEnd('\n'));
+		}
 
 		private static object InspectProjectSettings(ParsedPath parsed, string format)
 		{

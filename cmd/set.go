@@ -46,6 +46,23 @@ import (
 // is appended and the value is broadcast to every resulting target. All
 // writes share one Undo group.
 func setCmd(args []string, send sendFn) (*client.CommandResponse, error) {
+	// Peel known boolean flags out of args before any other processing.
+	// buildParams has no boolean-flag awareness — if it sees `--json`
+	// followed by a positional that doesn't start with `--`, it consumes
+	// the positional as the flag's value. Strip the boolean here and
+	// re-inject as named params after buildParams runs.
+	jsonFormat := false
+	filtered := make([]string, 0, len(args))
+	for _, a := range args {
+		switch a {
+		case "--json":
+			jsonFormat = true
+		default:
+			filtered = append(filtered, a)
+		}
+	}
+	args = filtered
+
 	positional, flagArgs := splitPositionalFromFlags(args)
 
 	// Multi-path broadcast: ":<suffix> <value>" + stdin paths.
@@ -66,6 +83,9 @@ func setCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 			if err != nil {
 				return nil, err
 			}
+			if jsonFormat {
+				params["format"] = "json"
+			}
 			return send("set", params)
 		}
 	}
@@ -80,6 +100,9 @@ func setCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	params, err := buildParams(args, nil)
 	if err != nil {
 		return nil, err
+	}
+	if jsonFormat {
+		params["format"] = "json"
 	}
 	return send("set", params)
 }

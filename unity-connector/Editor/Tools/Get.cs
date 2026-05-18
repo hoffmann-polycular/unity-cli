@@ -85,6 +85,12 @@ namespace UnityCliConnector.Tools
 			if (parsed.Kind == PathKind.ProjectSettings)
 				return GetProjectSettings(parsed, format);
 
+			// Asset importer access: Assets/Foo.png:TextureImporter.maxTextureSize
+			// or :Importer.<prop> (pseudo-name that resolves to the asset's actual
+			// importer). Reads through SerializedObject(importer); no re-import.
+			if (parsed.Kind == PathKind.Asset && PathResolver.IsImporterComponent(parsed.Component))
+				return GetFromImporter(parsed, format);
+
 			if (!parsed.Component.IsPresent)
 				return new ErrorResponse("get requires a component — add ':TypeName' to the path.");
 			if (parsed.Properties == null || parsed.Properties.Count == 0)
@@ -198,6 +204,36 @@ namespace UnityCliConnector.Tools
 					totalCount++;
 					continue;
 				}
+
+				// Asset importer per-path handling.
+				if (parsed.Kind == PathKind.Asset && PathResolver.IsImporterComponent(parsed.Component))
+				{
+					totalCount++;
+					var imp = GetFromImporter(parsed, "json");
+					if (imp is SuccessResponse impSr && impSr.data is Dictionary<string, object> impDict)
+					{
+						entries.Add(impDict);
+						successCount++;
+						if (format != "json")
+						{
+							var rendered = FormatPipeFriendly(impDict.TryGetValue("value", out var vv) ? vv : null);
+							if (format == "plain") successLines.Add(rendered);
+							else
+							{
+								var canon = impDict.TryGetValue("path", out var pp) ? pp?.ToString() : parsed.AssetPath;
+								var compName = impDict.TryGetValue("component", out var cc) ? cc?.ToString() : "";
+								var propName = impDict.TryGetValue("property", out var pn) ? pn?.ToString() : "";
+								successLines.Add($"{canon}:{compName}.{propName}  {rendered}");
+							}
+						}
+					}
+					else if (imp is ErrorResponse impEr)
+					{
+						errorLines.Add($"{pathStr}: {impEr.message}");
+					}
+					continue;
+				}
+
 				if (!parsed.Component.IsPresent)
 				{
 					errorLines.Add($"{pathStr}: get requires a component — add ':TypeName' to the path.");
@@ -355,6 +391,48 @@ namespace UnityCliConnector.Tools
 				});
 			}
 
+			return new SuccessResponse("", FormatPipeFriendly(value));
+		}
+
+		private static object GetFromImporter(ParsedPath parsed, string format)
+		{
+			if (parsed.Properties == null || parsed.Properties.Count == 0)
+				return new ErrorResponse("get requires a property — add '.propertyName' to the path.");
+
+			var impRes = PathResolver.ResolveAssetImporter(parsed);
+			if (!impRes.IsSuccess) return ErrorResponse.FromResult(impRes);
+			var importer = impRes.Value;
+
+			using var so = new SerializedObject(importer);
+			var root = PathResolver.FindPropertyByUserName(so, parsed.Properties[0]);
+			if (root == null)
+				return new ErrorResponse(
+					$"No property '{parsed.Properties[0]}' on {importer.GetType().Name}.",
+					ErrorKind.NotFound);
+
+			var current = root;
+			for (var i = 1; i < parsed.Properties.Count; i++)
+			{
+				var next = PathResolver.FindRelativeByUserName(current, parsed.Properties[i]);
+				if (next == null)
+					return new ErrorResponse(
+						$"No sub-property '{parsed.Properties[i]}' under '{JoinProps(parsed.Properties, i)}'.",
+						ErrorKind.NotFound);
+				current = next;
+			}
+
+			var value = SerializedPropertyReader.Read(current);
+			if (format == "json")
+			{
+				return new SuccessResponse("", new Dictionary<string, object>
+				{
+					["path"] = parsed.AssetPath,
+					["component"] = importer.GetType().Name,
+					["property"] = JoinProps(parsed.Properties, parsed.Properties.Count),
+					["type"] = current.propertyType.ToString(),
+					["value"] = value,
+				});
+			}
 			return new SuccessResponse("", FormatPipeFriendly(value));
 		}
 

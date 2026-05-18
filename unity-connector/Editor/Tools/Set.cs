@@ -24,6 +24,7 @@
 
 using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
@@ -99,6 +100,10 @@ namespace UnityCliConnector.Tools
 			// ProjectSettings backend.
 			if (parsed.Kind == PathKind.ProjectSettings)
 				return SetProjectSettings(parsed, rawValue);
+
+			// Asset importer backend (e.g. Assets/Foo.png:TextureImporter.maxTextureSize).
+			if (parsed.Kind == PathKind.Asset && PathResolver.IsImporterComponent(parsed.Component))
+				return SetOnImporter(parsed, rawValue);
 
 			if (!parsed.Component.IsPresent)
 				return new ErrorResponse("set requires a component — add ':TypeName' to the path.");
@@ -232,47 +237,77 @@ namespace UnityCliConnector.Tools
 			Undo.IncrementCurrentGroup();
 			Undo.SetCurrentGroupName("set (multi)");
 
-			foreach (var pathTok in paths)
+			// Defer + coalesce all asset imports so a batch of importer
+			// writes triggers a single Unity import pass instead of one per
+			// path. No-op when no importer paths are in the batch.
+			AssetDatabase.StartAssetEditing();
+			try
 			{
-				var pathStr = pathTok?.ToString();
-				if (string.IsNullOrWhiteSpace(pathStr)) continue;
 
-				var parseRes = PathParser.Parse(pathStr);
-				if (!parseRes.IsSuccess)
+				foreach (var pathTok in paths)
 				{
-					errors.Add($"{pathStr}: {parseRes.ErrorMessage}");
-					continue;
-				}
-				var parsed = parseRes.Value;
+					var pathStr = pathTok?.ToString();
+					if (string.IsNullOrWhiteSpace(pathStr)) continue;
 
-				if (parsed.Kind == PathKind.ProjectSettings)
-				{
-					errors.Add($"{pathStr}: ProjectSettings paths are not supported in multi-path mode.");
-					continue;
-				}
-				if (!parsed.Component.IsPresent)
-				{
-					errors.Add($"{pathStr}: set requires a component — add ':TypeName' to the path.");
-					continue;
-				}
-				if (parsed.Properties == null || parsed.Properties.Count == 0)
-				{
-					errors.Add($"{pathStr}: set requires a property — add '.propertyName' to the path.");
-					continue;
+					var parseRes = PathParser.Parse(pathStr);
+					if (!parseRes.IsSuccess)
+					{
+						errors.Add($"{pathStr}: {parseRes.ErrorMessage}");
+						continue;
+					}
+					var parsed = parseRes.Value;
+
+					if (parsed.Kind == PathKind.ProjectSettings)
+					{
+						errors.Add($"{pathStr}: ProjectSettings paths are not supported in multi-path mode.");
+						continue;
+					}
+
+					// Asset importer per-path: write through SerializedObject(importer).
+					// The whole batch is wrapped in StartAssetEditing / StopAssetEditing
+					// at the call site so per-path reimports coalesce into one pass.
+					// The Undo group still wraps property writes — reimport itself
+					// is not undoable, only the property revert.
+					if (parsed.Kind == PathKind.Asset && PathResolver.IsImporterComponent(parsed.Component))
+					{
+						totalTargets++;
+						var setRes = SetOnImporter(parsed, rawValue);
+						if (setRes is SuccessResponse impSr && impSr.data is Dictionary<string, object> impDict)
+							applied.Add(impDict);
+						else if (setRes is ErrorResponse impEr)
+							errors.Add($"{pathStr}: {impEr.message}");
+						continue;
+					}
+
+					if (!parsed.Component.IsPresent)
+					{
+						errors.Add($"{pathStr}: set requires a component — add ':TypeName' to the path.");
+						continue;
+					}
+					if (parsed.Properties == null || parsed.Properties.Count == 0)
+					{
+						errors.Add($"{pathStr}: set requires a property — add '.propertyName' to the path.");
+						continue;
+					}
+
+					var targetsRes = PathResolver.ResolveTargets(parsed);
+					if (!targetsRes.IsSuccess)
+					{
+						errors.Add($"{pathStr}: {targetsRes.ErrorMessage}");
+						continue;
+					}
+
+					foreach (var go in targetsRes.Value)
+					{
+						totalTargets++;
+						ApplyToOne(go, parsed, rawValue, applied, errors);
+					}
 				}
 
-				var targetsRes = PathResolver.ResolveTargets(parsed);
-				if (!targetsRes.IsSuccess)
-				{
-					errors.Add($"{pathStr}: {targetsRes.ErrorMessage}");
-					continue;
-				}
-
-				foreach (var go in targetsRes.Value)
-				{
-					totalTargets++;
-					ApplyToOne(go, parsed, rawValue, applied, errors);
-				}
+			}
+			finally
+			{
+				AssetDatabase.StopAssetEditing();
 			}
 
 			Undo.CollapseUndoOperations(undoGroup);
@@ -359,6 +394,71 @@ namespace UnityCliConnector.Tools
 				["newValue"] = newValue,
 				["override"] = current.prefabOverride,
 			});
+		}
+
+		// Writes a property on the asset's AssetImporter.
+		//
+		// Commits the change to the .meta file via
+		// AssetDatabase.WriteImportSettingsIfDirty. Unity's AssetDatabase
+		// notices the meta change and re-imports the asset on its own — no
+		// explicit ImportAsset call needed, and skipping it sidesteps the
+		// "Unsaved Changes Detected" popup and the Inspector working-copy
+		// conflict (silent alternating writes) that hit us when we used to
+		// force a synchronous ImportAsset(ForceUpdate) on every set.
+		private static object SetOnImporter(ParsedPath parsed, JToken rawValue)
+		{
+			if (parsed.Properties == null || parsed.Properties.Count == 0)
+				return new ErrorResponse("set requires a property — add '.propertyName' to the path.");
+
+			var impRes = PathResolver.ResolveAssetImporter(parsed);
+			if (!impRes.IsSuccess) return ErrorResponse.FromResult(impRes);
+			var importer = impRes.Value;
+
+			using var so = new SerializedObject(importer);
+			var root = PathResolver.FindPropertyByUserName(so, parsed.Properties[0]);
+			if (root == null)
+				return new ErrorResponse(
+					$"No property '{parsed.Properties[0]}' on {importer.GetType().Name}.",
+					ErrorKind.NotFound);
+
+			var current = root;
+			for (var i = 1; i < parsed.Properties.Count; i++)
+			{
+				var next = PathResolver.FindRelativeByUserName(current, parsed.Properties[i]);
+				if (next == null)
+					return new ErrorResponse(
+						$"No sub-property '{parsed.Properties[i]}' under '{Join(parsed.Properties, i)}'.",
+						ErrorKind.NotFound);
+				current = next;
+			}
+
+			var oldValue = SerializedPropertyReader.Read(current);
+
+			Undo.RecordObject(importer, $"set {importer.GetType().Name}.{Join(parsed.Properties, parsed.Properties.Count)}");
+			var writeResult = SerializedPropertyWriter.Write(current, rawValue);
+			if (!writeResult.IsSuccess) return ErrorResponse.FromResult(writeResult);
+
+			so.ApplyModifiedProperties();
+			EditorUtility.SetDirty(importer);
+
+			var newValue = SerializedPropertyReader.Read(current);
+			var propertyType = current.propertyType.ToString();
+
+			// Commit the meta file. We do NOT call ImportAsset — see comment
+			// on the method.
+			AssetDatabase.WriteImportSettingsIfDirty(parsed.AssetPath);
+
+			return new SuccessResponse(
+				$"{parsed.AssetPath}:{importer.GetType().Name}.{Join(parsed.Properties, parsed.Properties.Count)} = {Describe(newValue)}",
+				new Dictionary<string, object>
+				{
+					["path"] = parsed.AssetPath,
+					["component"] = importer.GetType().Name,
+					["property"] = Join(parsed.Properties, parsed.Properties.Count),
+					["type"] = propertyType,
+					["oldValue"] = oldValue,
+					["newValue"] = newValue,
+				});
 		}
 
 		private static object SetProjectSettings(ParsedPath parsed, JToken rawValue)

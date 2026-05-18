@@ -412,6 +412,86 @@ namespace UnityCliConnector
 			return BuildSegment(go);
 		}
 
+		// ---- asset importer access ----
+
+		/// <summary>
+		/// True when the supplied component reference points at an
+		/// <see cref="AssetImporter"/> rather than a runtime
+		/// <see cref="Component"/>. We treat the asset's importer as a
+		/// pseudo-component on the asset path — `:Importer` (alias for
+		/// "whatever importer this asset uses") or a concrete subclass
+		/// name like `:TextureImporter` / `:ModelImporter`.
+		/// </summary>
+		public static bool IsImporterComponent(ComponentRef compRef)
+		{
+			if (!compRef.IsPresent) return false;
+			var name = compRef.TypeName;
+			if (string.IsNullOrEmpty(name)) return false;
+			return name.Equals("Importer", System.StringComparison.OrdinalIgnoreCase)
+				|| (name.Length > "Importer".Length
+					&& name.EndsWith("Importer", System.StringComparison.OrdinalIgnoreCase));
+		}
+
+		/// <summary>
+		/// Resolves an asset path to its <see cref="AssetImporter"/>. When the
+		/// user specified a concrete importer type (e.g. `:TextureImporter`),
+		/// validates that the asset actually uses that importer subclass and
+		/// errors otherwise. The pseudo-name `:Importer` always matches.
+		///
+		/// Sub-asset paths (`Assets/Foo.prefab//Child`) have no importer of
+		/// their own — the importer is per asset file — so they're rejected.
+		/// </summary>
+		public static Result<AssetImporter> ResolveAssetImporter(ParsedPath parsed)
+		{
+			if (parsed.Kind != PathKind.Asset)
+				return Result<AssetImporter>.Error("Not an asset path.", ErrorKind.Usage);
+			if (string.IsNullOrEmpty(parsed.AssetPath))
+				return Result<AssetImporter>.Error("Asset path is empty.", ErrorKind.Usage);
+			if (parsed.Segments != null && parsed.Segments.Count > 0)
+				return Result<AssetImporter>.Error(
+					"Sub-asset paths don't have importers (importer is per asset file).",
+					ErrorKind.Usage);
+
+			var importer = AssetImporter.GetAtPath(parsed.AssetPath);
+			if (importer == null)
+			{
+				// Distinguish "asset doesn't exist" from "asset has no importer"
+				// (built-in resources, default assets, etc.).
+				var any = AssetDatabase.LoadMainAssetAtPath(parsed.AssetPath);
+				if (any == null)
+					return Result<AssetImporter>.Error(
+						$"Asset not found: '{parsed.AssetPath}'.", ErrorKind.NotFound);
+				return Result<AssetImporter>.Error(
+					$"Asset '{parsed.AssetPath}' has no importer (built-in or default asset?).",
+					ErrorKind.NotFound);
+			}
+
+			// Type-check against the user-supplied name unless they used the
+			// magic `:Importer` alias (which accepts anything).
+			if (parsed.Component.IsPresent
+				&& !parsed.Component.TypeName.Equals("Importer", System.StringComparison.OrdinalIgnoreCase))
+			{
+				var importerType = importer.GetType();
+				var t = importerType;
+				var match = false;
+				while (t != null && t != typeof(object))
+				{
+					if (t.Name.Equals(parsed.Component.TypeName, System.StringComparison.OrdinalIgnoreCase))
+					{
+						match = true;
+						break;
+					}
+					t = t.BaseType;
+				}
+				if (!match)
+					return Result<AssetImporter>.Error(
+						$"Asset '{parsed.AssetPath}' uses {importerType.Name}, not {parsed.Component.TypeName}.",
+						ErrorKind.Usage);
+			}
+
+			return Result<AssetImporter>.Success(importer);
+		}
+
 		// ---- component / property resolution (unchanged) ----
 
 		public static Result<Component> ResolveComponent(GameObject go, ComponentRef compRef)

@@ -12,6 +12,7 @@ tools (pipes, `jq`, `xargs`, `grep`, `awk`).
 - [Architecture](#architecture)
 - [Path Grammar](#path-grammar)
   - [`:GameObject` Pseudo-Component](#gameobject-pseudo-component)
+  - [`:Importer` Pseudo-Component](#importer-pseudo-component)
 - [Reference Resolution](#reference-resolution)
 - [Output Formats](#output-formats)
 - [Command Reference](#command-reference)
@@ -21,7 +22,7 @@ tools (pipes, `jq`, `xargs`, `grep`, `awk`).
   - Components: [component](#component)
   - Prefabs: [prefab](#prefab)
   - Scenes: [scene](#scene)
-  - Editor control: [editor](#editor), [console](#console), [menu](#menu), [screenshot](#screenshot), [reserialize](#reserialize), [profiler](#profiler), [test](#test), [status](#status), [list](#list)
+  - Editor control: [editor](#editor), [console](#console), [menu](#menu), [screenshot](#screenshot), [reserialize](#reserialize), [reimport](#reimport), [profiler](#profiler), [test](#test), [status](#status), [list](#list)
   - Tooling: [exec](#exec), [update](#update), [completion](#completion), [Custom tools](#custom-tools)
 - [Common Usage Examples](#common-usage-examples)
 - [Tips and Tricks](#tips-and-tricks)
@@ -279,6 +280,49 @@ unity-cli inspect /Player:GameObject.tag              # single field
 # Fan-out: set all selected objects active in one call
 unity-cli set :GameObject.activeSelf true
 ```
+
+### `:Importer` Pseudo-Component
+
+Every asset (`Assets/Foo.png`, `Assets/Hero.fbx`, etc.) has an
+`AssetImporter` behind it — that's what the Inspector shows when you click
+an asset in the Project window. unity-cli exposes the importer through the
+normal path grammar by treating it as a pseudo-component on the asset
+path, mirroring how `:Transform` works for GameObjects:
+
+```bash
+unity-cli inspect Assets/Foo.png:TextureImporter
+unity-cli get     Assets/Foo.png:TextureImporter.maxTextureSize
+unity-cli set     Assets/Foo.png:TextureImporter.maxTextureSize 1024
+```
+
+The pseudo-name `:Importer` always resolves to whichever importer subclass
+the asset actually uses — handy when you don't want to look up the type:
+
+```bash
+unity-cli inspect Assets/Foo.png:Importer            # → TextureImporter
+unity-cli set     Assets/Hero.fbx:Importer.animationType Generic
+unity-cli get     Assets/Sound.wav:Importer.loadType
+```
+
+**Type checking.** When you pass a concrete name (`:TextureImporter`,
+`:ModelImporter`, `:AudioImporter`, …), unity-cli verifies the asset
+actually uses that importer subclass and errors with exit code 64
+otherwise:
+
+```
+$ unity-cli get Assets/Foo.png:ModelImporter.animationType
+Error: Asset 'Assets/Foo.png' uses TextureImporter, not ModelImporter.
+```
+
+**Reimport semantics.** `set` writes the importer property and commits the
+`.meta` file to disk; Unity picks up the change and re-imports the asset on
+its own. No explicit reimport step is needed for routine edits. Use the
+separate `reimport` command when you need to force a re-import for other
+reasons (external source-file changes, recovering from a partial import).
+
+**Sub-asset paths don't have importers.** The importer is per asset file,
+so `Assets/Foo.prefab//Child:Importer` is rejected. Use `Assets/Foo.prefab:Importer`
+(without the `//`) to inspect the prefab's PrefabImporter.
 
 ### Sub-asset access (`//`)
 
@@ -549,6 +593,57 @@ unity-cli reserialize [path...]
 unity-cli reserialize
 unity-cli reserialize Assets/Prefabs/Player.prefab
 unity-cli reserialize Assets/Scenes/Main.unity Assets/Scenes/Lobby.unity
+```
+
+---
+
+### `reimport`
+
+✅ **Implemented**
+
+Force Unity to re-run the **import pipeline** (TextureImporter,
+ModelImporter, AudioImporter, etc.) on one or more assets. Different
+from `reserialize` (which rewrites the file through Unity's YAML
+serializer without touching the importer) and from `editor refresh`
+(which is project-wide).
+
+```
+unity-cli reimport <path>...
+unity-cli reimport <folder> --recursive
+find ... --plain | unity-cli reimport
+```
+
+**Options:**
+- `--recursive` — when a path is a folder, walk into it and reimport
+  every asset under it. Without this flag, folders are an error.
+- Accepts paths on stdin (one per line) for batch reimport.
+
+**Behavior:**
+- Wraps the whole batch in
+  `AssetDatabase.StartAssetEditing` / `StopAssetEditing` so Unity defers
+  import work and runs it as a single pass — substantially faster than
+  reimporting each file individually.
+- Not undoable. The property writes that motivated a reimport are; the
+  resulting reimport itself isn't.
+
+Not normally needed alongside `set <asset>:Importer.*` — Unity reimports
+automatically when the meta file changes. Use `reimport` for the cases
+where the import wasn't triggered by a meta change:
+
+```bash
+# An external tool rewrote some source PNGs; force the project to catch up.
+unity-cli reimport Assets/Sprites/ --recursive
+
+# Force a re-import of a single asset (recover from a partial import).
+unity-cli reimport Assets/Foo.png
+```
+
+**Examples:**
+```bash
+unity-cli reimport Assets/Foo.png
+unity-cli reimport Assets/Textures/ --recursive
+unity-cli reimport Assets/A.png Assets/B.png Assets/C.png
+unity-cli find Assets/Sprites/ --type Texture2D --plain | unity-cli reimport
 ```
 
 ---
@@ -907,10 +1002,15 @@ unity-cli inspect World/Player --json | jq '.Transform.localPosition'
 unity-cli inspect World/Player:GameObject
 unity-cli inspect World/Player:GameObject.activeSelf
 
+# :Importer pseudo-component — dump or drill into the asset's importer
+unity-cli inspect Assets/Foo.png:Importer
+unity-cli inspect Assets/Foo.png:TextureImporter.maxTextureSize
+
 # Multi-path via stdin
 unity-cli inspect                                          # inspect selection
 unity-cli find --component Light --plain | unity-cli inspect :Light
 unity-cli find --component Rigidbody --plain | unity-cli inspect
+unity-cli find Assets/ --type Texture2D --plain | unity-cli inspect :Importer
 ```
 
 ---
@@ -957,6 +1057,12 @@ unity-cli get World/Player:GameObject.layer
 # Multi-path via stdin
 unity-cli find --component Light --plain | unity-cli get :Light.intensity
 unity-cli find --component Rigidbody --plain | unity-cli get :Rigidbody.mass
+
+# Asset importer access
+unity-cli get Assets/Foo.png:TextureImporter.maxTextureSize
+unity-cli get Assets/Foo.png:Importer.sRGBTexture        # alias
+unity-cli get Assets/Hero.fbx:Importer.animationType
+unity-cli find Assets/Sprites/ --type Texture2D --plain | unity-cli get :Importer.maxTextureSize
 ```
 
 ---
@@ -978,6 +1084,10 @@ unity-cli set <path> [<value>] [--all]
   or `null`/`none` to clear. Read from stdin if omitted.
 - For prefab instances, creates an override implicitly (same as typing in
   the Inspector).
+- For asset-importer properties (`Assets/Foo.png:Importer.x`), `set` writes
+  the meta file and Unity re-imports the asset automatically — no separate
+  `reimport` call is needed for the change to apply. See `:Importer` in the
+  Path Grammar section.
 
 **Stdin (multi-path broadcast):**
 
@@ -1005,6 +1115,12 @@ unity-cli set World/Player:GameObject.name "Hero"
 unity-cli set World/Player:GameObject.tag "Player"
 unity-cli set World/Player:GameObject.layer "UI"
 unity-cli set :GameObject.isStatic true          # fan-out: all selected objects
+
+# Asset importer access (Unity re-imports automatically on meta change)
+unity-cli set Assets/Foo.png:TextureImporter.maxTextureSize 1024
+unity-cli set Assets/Hero.fbx:Importer.animationType Generic
+unity-cli find Assets/Sprites/ --type Texture2D --plain | \
+    unity-cli set :Importer.maxTextureSize 512
 ```
 
 ---

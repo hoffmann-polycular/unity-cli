@@ -359,26 +359,46 @@ namespace UnityCliConnector
         private static Result<ParsedPath> ParseAsset(string trimmed, ParsedPath parsed)
         {
             parsed.Kind = PathKind.Asset;
-            // "//" splits the on-disk asset path from the sub-asset path.
-            // We use "//" instead of a single "/" because asset folders may
-            // legally contain dots (e.g. Assets/Stuff.v2/Hat.prefab).
-            var doubleSlash = trimmed.IndexOf("//", StringComparison.Ordinal);
-            string innerTail;
-            if (doubleSlash >= 0)
+
+            // Asset paths can contain dots in folder names
+            // (`Assets/Stuff.v2/Hat.prefab`) but never a colon — so the first
+            // ':' marks the start of `:Component[.prop]`. Peel that off first
+            // so the asset-vs-sub-asset split below sees only filesystem-y
+            // characters.
+            var colonIdx = trimmed.IndexOf(':');
+            string assetPart;
+            string componentTail = null;
+            if (colonIdx >= 0)
             {
-                parsed.AssetPath = trimmed.Substring(0, doubleSlash);
-                parsed.InnerPath = trimmed.Substring(doubleSlash + 2);
-                innerTail = parsed.InnerPath;
+                assetPart = trimmed.Substring(0, colonIdx);
+                componentTail = trimmed.Substring(colonIdx); // includes leading ':'
             }
             else
             {
-                parsed.AssetPath = trimmed;
-                parsed.InnerPath = "";
-                return Result<ParsedPath>.Success(parsed);
+                assetPart = trimmed;
             }
-            if (string.IsNullOrEmpty(innerTail))
+
+            // "//" splits the on-disk asset path from the sub-asset path.
+            // We use "//" instead of a single "/" because asset folders may
+            // legally contain dots (e.g. Assets/Stuff.v2/Hat.prefab).
+            var doubleSlash = assetPart.IndexOf("//", StringComparison.Ordinal);
+            if (doubleSlash >= 0)
+            {
+                parsed.AssetPath = assetPart.Substring(0, doubleSlash);
+                parsed.InnerPath = assetPart.Substring(doubleSlash + 2);
+            }
+            else
+            {
+                parsed.AssetPath = assetPart;
+                parsed.InnerPath = "";
+            }
+
+            // Compose the tail ParseSceneTail consumes:
+            // sub-asset segments + optional ':Component[.prop]'.
+            var tail = parsed.InnerPath + (componentTail ?? "");
+            if (string.IsNullOrEmpty(tail))
                 return Result<ParsedPath>.Success(parsed);
-            return ParseSceneTail(innerTail, parsed);
+            return ParseSceneTail(tail, parsed);
         }
 
         private static Result<ParsedPath> ParseProjectSettings(string trimmed, ParsedPath parsed)

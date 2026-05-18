@@ -162,7 +162,7 @@ func computeCandidates(idx int, words []string, current string) []string {
 var topLevelCommands = []string{
 	"editor", "test", "exec", "ls", "find", "inspect", "get", "set",
 	"component", "select", "create", "rm", "cp", "mv", "reorder",
-	"prefab", "scene", "console", "menu", "screenshot", "reserialize",
+	"prefab", "scene", "console", "menu", "screenshot", "reserialize", "reimport",
 	"profiler", "status", "list", "update", "version", "help", "completion",
 }
 
@@ -231,6 +231,7 @@ var commandFlags = map[string][]string{
 	"reorder":    {"--index", "--first", "--last", "--up", "--down", "--before", "--after"},
 	"console":    {"--lines", "--type", "--stacktrace", "--clear"},
 	"screenshot": {"--view", "--width", "--height", "--output-path", "-o"},
+	"reimport":   {"--recursive"},
 	"test":       {"--mode", "--filter"},
 	"exec":       {"--usings", "--csc", "--dotnet"},
 	"editor":     {"--wait", "--compile"},

@@ -210,6 +210,8 @@ func Execute() error {
 		resp, err = sceneCmd(subArgs, send)
 	case "screenshot":
 		resp, err = screenshotCmd(subArgs, send)
+	case "reimport":
+		resp, err = reimportCmd(subArgs, send)
 	default:
 		var params map[string]interface{}
 		params, err = buildParams(subArgs, nil)
@@ -503,6 +505,11 @@ Screenshot:
   screenshot                          Capture scene view (default)
   screenshot --view game              Capture game view
   screenshot --output-path <path>     Custom output path (alias: -o)
+
+Reimport:
+  reimport <path>                Re-run the import pipeline on an asset
+  reimport <folder> --recursive  Walk into a folder and reimport every asset
+  find ... --plain | reimport    Batch reimport from stdin
 
 Reserialize:
   reserialize [path...]          Force reserialize (no args = entire project)
@@ -1364,6 +1371,40 @@ Examples:
   unity-cli screenshot --view scene --width 3840 --height 2160
   unity-cli screenshot --output-path captures/my_scene.png
   unity-cli screenshot -o captures/my_scene.png
+`)
+	case "reimport":
+		fmt.Print(`Usage: unity-cli reimport <path>...
+       unity-cli reimport <folder> --recursive
+       find ... --plain | unity-cli reimport
+
+Force Unity to re-run the import pipeline (TextureImporter, ModelImporter,
+AudioImporter, etc.) on one or more assets. Different from:
+  - reserialize: rewrites the file through Unity's YAML serializer; does
+                 NOT re-run the importer.
+  - editor refresh: project-wide AssetDatabase refresh.
+
+Common use cases:
+  - After an external tool rewrites source files on disk and Unity hasn't
+    noticed yet.
+  - Recover from a partially-imported asset (corruption, interrupted import).
+  - Note: 'set <asset>:Importer.* <v>' does NOT need a follow-up reimport —
+    Unity re-imports automatically when the meta file changes.
+
+Options:
+  --recursive                    Walk into folders, reimport every asset.
+
+Examples:
+  unity-cli reimport Assets/Textures/Foo.png
+  unity-cli reimport Assets/Textures/ --recursive
+  unity-cli reimport Assets/Tex/A.png Assets/Tex/B.png Assets/Tex/C.png
+  unity-cli find Assets/Sprites/ --type Texture2D --plain | unity-cli reimport
+
+Notes:
+  - The whole batch is wrapped in AssetDatabase.StartAssetEditing /
+    StopAssetEditing so Unity defers the import work once and runs it in
+    one pass — significantly faster than reimporting each file individually.
+  - Reimport is not undoable. (The Importer property writes that triggered
+    it are; the resulting reimport is not.)
 `)
 	case "reserialize":
 		fmt.Print(`Usage: unity-cli reserialize [path...]
