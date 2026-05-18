@@ -3,8 +3,8 @@
 [English](README.md) | [한국어](README.ko.md)
 
 > 커맨드라인으로 Unity Editor를 제어합니다. AI 에이전트를 위해 만들었지만, 무엇이든 사용 가능합니다.
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+> 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 **서버 실행 없음. 설정 파일 없음. 프로세스 관리 없음. 명령어만 치면 됩니다.**
 
@@ -485,6 +485,14 @@ unity-cli editor play
 [![YouTube](https://img.shields.io/badge/YouTube-DevBookOfArray-red?logo=youtube&logoColor=white)](https://www.youtube.com/@DevBookOfArray)
 [![GitHub](https://img.shields.io/badge/GitHub-youngwoocho02-181717?logo=github)](https://github.com/youngwoocho02)
 
+And
+
+Polycular GmbH
+
+[Website](https://www.polycular.com/)
+
 ## 라이선스
 
-MIT
+GPLv3 and MIT
+
+Commercial license available for enterprises and closed-source projects. Contact info@polycular.com for details.
