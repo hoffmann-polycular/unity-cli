@@ -47,15 +47,17 @@ import (
 var Version = "dev"
 
 var (
-	flagPort    int
-	flagProject string
-	flagTimeout int
+	flagPort                  int
+	flagProject               string
+	flagTimeout               int
+	flagIgnoreVersionMismatch bool
 )
 
 func Execute() error {
-	flag.IntVar(&flagPort, "port", 0, "Override Unity instance port")
+	flag.IntVar(&flagPort, "port", 0, "Select Unity instance by active heartbeat port")
 	flag.StringVar(&flagProject, "project", "", "Select Unity instance by project path")
 	flag.IntVar(&flagTimeout, "timeout", 120000, "Request timeout in milliseconds")
+	flag.BoolVar(&flagIgnoreVersionMismatch, "ignore-version-mismatch", false, "Run even when CLI and connector versions differ")
 
 	flag.Usage = func() { printHelp() }
 
@@ -100,7 +102,7 @@ func Execute() error {
 	case "update":
 		return updateCmd(subArgs)
 	case "status":
-		inst, err := client.DiscoverInstance(flagProject, flagPort)
+		inst, err := discoverStatusInstance(flagProject, flagPort)
 		if err != nil {
 			return err
 		}
@@ -114,12 +116,35 @@ func Execute() error {
 		return err
 	}
 
-	if err := waitForAlive(inst.Port, flagTimeout); err != nil {
+	targetProject := flagProject
+	if flagPort == 0 && targetProject == "" {
+		targetProject = inst.ProjectPath
+	}
+
+	resolve := func() (*client.Instance, error) {
+		if flagPort > 0 {
+			return client.DiscoverInstance("", flagPort)
+		}
+		return client.DiscoverInstance(targetProject, 0)
+	}
+
+	alive, err := waitForAlive(resolve, flagTimeout)
+	if err != nil {
+		return err
+	}
+	if err := checkConnectorVersion(alive, Version, flagIgnoreVersionMismatch); err != nil {
 		return err
 	}
 
 	timeout := flagTimeout
 	send := func(command string, params interface{}) (*client.CommandResponse, error) {
+		inst, err := resolve()
+		if err != nil {
+			return nil, err
+		}
+		if err := checkConnectorVersion(inst, Version, flagIgnoreVersionMismatch); err != nil {
+			return nil, err
+		}
 		return client.Send(inst, command, params, timeout)
 	}
 
@@ -127,12 +152,19 @@ func Execute() error {
 
 	switch category {
 	case "editor":
-		resp, err = editorCmd(subArgs, send, inst.Port)
+		resp, err = editorCmd(subArgs, send, resolve)
 	case "test":
-		testSend := func(command string, params interface{}) (*client.CommandResponse, error) {
-			return client.Send(inst, command, params, 0)
+		currentInst, resolveErr := resolve()
+		if resolveErr != nil {
+			return resolveErr
 		}
-		resp, err = testCmd(subArgs, testSend, inst.Port)
+		if err := checkConnectorVersion(currentInst, Version, flagIgnoreVersionMismatch); err != nil {
+			return err
+		}
+		testSend := func(command string, params interface{}) (*client.CommandResponse, error) {
+			return client.Send(currentInst, command, params, 0)
+		}
+		resp, err = testCmd(subArgs, testSend, currentInst.Port)
 	case "exec":
 		subArgs = readStdinIfPiped(subArgs)
 		var params map[string]interface{}
@@ -315,17 +347,20 @@ func readStdinIfPiped(args []string) []string {
 	return append([]string{code}, args...)
 }
 
-// splitArgs separates global flags (--port, --project, --timeout) from subcommand args.
+// splitArgs separates global flags from subcommand args.
 // Global flags must be parsed by flag.CommandLine before the subcommand runs.
 func splitArgs(args []string) (flags, commands []string) {
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--port" || args[i] == "--project" || args[i] == "--timeout" {
+		switch args[i] {
+		case "--ignore-version-mismatch":
+			flags = append(flags, args[i])
+		case "--port", "--project", "--timeout":
 			flags = append(flags, args[i])
 			if i+1 < len(args) {
 				i++
 				flags = append(flags, args[i])
 			}
-		} else {
+		default:
 			commands = append(commands, args[i])
 		}
 	}
@@ -341,7 +376,7 @@ Editor Control:
   editor play [--wait]          Enter play mode (--wait blocks until fully entered)
   editor stop                   Exit play mode
   editor pause                  Toggle pause/resume (play mode only)
-  editor refresh                Refresh asset database
+  editor refresh [--force]      Refresh asset database (blocked in play mode unless forced)
   editor refresh --compile      Recompile scripts and wait until done
 
 Scene:
@@ -436,6 +471,8 @@ Tests:
   test                            Run EditMode tests (default)
   test --mode PlayMode            Run PlayMode tests
   test --filter <name>            Filter by namespace, class, or full test name
+  test --allow-dirty-scenes       Run even when open scenes have unsaved changes
+  test --auto-save-scenes         Save dirty open scenes before running tests
 
 Profiler:
   profiler hierarchy              Top-level profiler samples (last frame)
@@ -491,9 +528,11 @@ Shell Completion:
   (see 'unity-cli help completion' for installation)
 
 Global Options:
-  --port <N>          Connect to specific Unity port (skip auto-discovery)
+  --port <N>          Select Unity instance by active heartbeat port
   --project <path>    Select Unity instance by project path
   --timeout <ms>      Request timeout in ms (default: 120000)
+  --ignore-version-mismatch
+                      Run even when CLI and connector versions differ
 
 Use "unity-cli <command> --help" for more information about a command.
 
@@ -517,12 +556,15 @@ Subcommands:
   stop                Exit play mode. No effect if not playing.
   pause               Toggle pause. Only works during play mode.
   refresh             Refresh AssetDatabase (reimport changed assets).
+                      Blocked in play mode unless --force is set.
     --compile         Recompile scripts and wait until compilation finishes.
+    --force           Allow refresh during play mode and force asset update.
 
 Examples:
   unity-cli editor play --wait
   unity-cli editor stop
   unity-cli editor refresh --compile
+  unity-cli editor refresh --force
 `)
 	case "find":
 		fmt.Print(`Usage: unity-cli find [<path>] [filters] [output options]
@@ -1221,15 +1263,19 @@ Options:
   --mode <EditMode|PlayMode>    Test mode (default: EditMode)
   --filter <name>               Filter by namespace, class, or full test name
                                 Must be the full path (e.g. MyNamespace.MyClass)
+  --allow-dirty-scenes          Run even when open scenes have unsaved changes
+  --auto-save-scenes            Save dirty open scenes before running tests
 
 EditMode tests hold the connection open and return results directly.
 PlayMode tests return immediately and poll a results file (domain reload safe).
+By default, tests are blocked when any open scene has unsaved changes.
 
 Requires the Unity Test Framework package (com.unity.test-framework).
 
 Examples:
   unity-cli test
   unity-cli test --mode PlayMode
+  unity-cli test --auto-save-scenes
   unity-cli test --filter MyNamespace.MyTests
   unity-cli test --mode EditMode --filter MyNamespace.MyTests.SpecificTest
 `)

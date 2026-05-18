@@ -77,11 +77,11 @@ https://github.com/youngwoocho02/unity-cli.git?path=unity-connector
 
 ### 권장: Editor 쓰로틀링 비활성화
 
-기본적으로 Unity는 창이 포커스를 잃으면 에디터 업데이트를 쓰로틀링합니다. 이 경우 Unity를 다시 클릭하기 전까지 CLI 명령이 실행되지 않을 수 있습니다.
+기본적으로 Unity는 창이 포커스를 잃으면 에디터 업데이트를 쓰로틀링합니다. Unity API 작업은 Editor 메인 스레드에서 디스패치되므로 CLI 명령 처리가 지연될 수 있습니다.
 
 **Edit → Preferences → General → Interaction Mode**에서 **No Throttling**으로 설정하세요.
 
-이렇게 하면 Unity가 백그라운드에 있어도 CLI 명령이 즉시 처리됩니다.
+커넥터도 CLI 요청이 들어올 때마다 PlayerLoop 업데이트를 요청합니다. 그래도 백그라운드 응답성을 가장 안정적으로 유지하려면 No Throttling 설정을 권장합니다.
 
 ## 빠른 시작
 
@@ -170,11 +170,14 @@ unity-cli editor stop
 # 일시정지 토글 (플레이 모드에서만 동작)
 unity-cli editor pause
 
-# 에셋 새로고침
+# 에셋 새로고침 (플레이모드에서는 --force 없으면 차단)
 unity-cli editor refresh
 
-# 새로고침 + 스크립트 컴파일 (컴파일 완료까지 대기)
+# 새로고침 + 스크립트 컴파일 (플레이모드에서는 --force 없으면 차단)
 unity-cli editor refresh --compile
+
+# 플레이모드 중 강제 새로고침
+unity-cli editor refresh --force
 ```
 
 ### 콘솔 로그
@@ -293,11 +296,14 @@ unity-cli test
 # PlayMode 테스트 실행
 unity-cli test --mode PlayMode
 
+# 열린 dirty 씬 저장 후 테스트 실행
+unity-cli test --auto-save-scenes
+
 # 테스트 이름으로 필터링 (부분 문자열 매치)
 unity-cli test --filter MyTestClass
 ```
 
-Unity Test Framework 패키지가 필요합니다. PlayMode 테스트는 도메인 리로드를 트리거하며, CLI가 자동으로 결과를 폴링합니다.
+Unity Test Framework 패키지가 필요합니다. 열린 씬에 저장되지 않은 변경이 있으면 기본적으로 테스트를 막습니다. `--auto-save-scenes`로 먼저 저장하거나, `--allow-dirty-scenes`로 그대로 실행할 수 있습니다. PlayMode 테스트는 도메인 리로드를 트리거하며, CLI가 자동으로 결과를 폴링합니다.
 
 ### 도구 목록
 
@@ -333,9 +339,10 @@ unity-cli status
 
 | 플래그 | 설명 | 기본값 |
 |--------|------|--------|
-| `--port <N>` | Unity 인스턴스 포트 직접 지정 (자동 탐지 건너뜀) | auto |
+| `--port <N>` | 활성 heartbeat 포트로 Unity 인스턴스 선택 | auto |
 | `--project <path>` | 프로젝트 경로로 Unity 인스턴스 선택 | latest |
 | `--timeout <ms>` | HTTP 요청 타임아웃 | 120000 |
+| `--ignore-version-mismatch` | CLI와 connector 버전이 달라도 실행 | false |
 
 ```bash
 # 특정 Unity 인스턴스에 연결
@@ -343,6 +350,9 @@ unity-cli --port 8091 editor play
 
 # 여러 Unity 인스턴스 중 프로젝트 경로로 선택
 unity-cli --project MyGame editor stop
+
+# 설치된 connector 릴리스 버전이 달라도 그대로 실행
+unity-cli --ignore-version-mismatch status
 ```
 
 모든 명령어에 `--help`를 붙이면 상세 사용법을 볼 수 있습니다:
@@ -449,7 +459,7 @@ ls ~/.unity-cli/instances/
 # 프로젝트 경로로 선택
 unity-cli --project MyGame editor play
 
-# 포트로 선택
+# 활성 heartbeat 포트로 선택
 unity-cli --port 8091 editor play
 
 # 기본: 가장 최근 등록된 인스턴스 사용

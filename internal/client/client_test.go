@@ -121,6 +121,25 @@ func TestFindActiveByPort_PicksLatestTimestamp(t *testing.T) {
 	}
 }
 
+func TestFindActiveByPort_SkipsZeroTimestamp(t *testing.T) {
+	stubIsProcessDead(t, map[int]bool{})
+
+	home := writeInstanceFiles(t, map[string]Instance{
+		"zero_timestamp.json": {
+			State:       "ready",
+			ProjectPath: "/projects/incomplete",
+			Port:        8090,
+			PID:         100,
+			Timestamp:   0,
+		},
+	})
+	t.Setenv("HOME", home)
+
+	if _, err := FindActiveByPort(8090); err == nil {
+		t.Fatal("expected error for instance without heartbeat timestamp")
+	}
+}
+
 // --- FindByPort tests (exact lookup, includes stopped) ---
 
 // TestFindByPort_ReturnsStoppedInstance verifies that FindByPort returns
@@ -310,5 +329,52 @@ func TestDiscoverInstance_ProjectPathMatchesSlashVariants(t *testing.T) {
 	}
 	if got.ProjectPath != "E:/GamerAworlD" {
 		t.Errorf("ProjectPath: got %q, want %q", got.ProjectPath, "E:/GamerAworlD")
+	}
+}
+
+// TestDiscoverInstance_PortFlagPopulatesTimestamp verifies that --port lookups
+// return the actual instance file's timestamp when one exists. Without this,
+// waitForAlive sees Timestamp=0 and polls indefinitely for a "newer" heartbeat
+// that never arrives, hanging on "Waiting for Unity..." until --timeout expires.
+func TestDiscoverInstance_PortFlagPopulatesTimestamp(t *testing.T) {
+	stubIsProcessDead(t, map[int]bool{})
+
+	home := writeInstanceFiles(t, map[string]Instance{
+		"current.json": {
+			State:       "ready",
+			ProjectPath: "/projects/current",
+			Port:        8091,
+			PID:         200,
+			Timestamp:   12345,
+		},
+	})
+	t.Setenv("HOME", home)
+
+	got, err := DiscoverInstance("", 8091)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Port != 8091 {
+		t.Errorf("Port: got %d, want %d", got.Port, 8091)
+	}
+	if got.Timestamp != 12345 {
+		t.Errorf("Timestamp: got %d, want %d", got.Timestamp, 12345)
+	}
+	if got.ProjectPath != "/projects/current" {
+		t.Errorf("ProjectPath: got %q, want %q", got.ProjectPath, "/projects/current")
+	}
+}
+
+// TestDiscoverInstance_PortFlagRequiresActiveInstance verifies that --port
+// still resolves through heartbeat state instead of manufacturing a partial
+// Instance that polling code can mistake for real status.
+func TestDiscoverInstance_PortFlagRequiresActiveInstance(t *testing.T) {
+	stubIsProcessDead(t, map[int]bool{})
+
+	home := writeInstanceFiles(t, map[string]Instance{})
+	t.Setenv("HOME", home)
+
+	if _, err := DiscoverInstance("", 8091); err == nil {
+		t.Fatal("expected error for port without an active instance file")
 	}
 }

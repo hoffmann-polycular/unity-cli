@@ -20,8 +20,8 @@ namespace UnityCliConnector
     /// <summary>
     /// Lightweight HTTP server on localhost. Receives CLI commands as POST /command,
     /// dispatches via CommandRouter, returns JSON responses.
-    /// Uses ConcurrentQueue + EditorApplication.update for main-thread marshaling
-    /// so commands execute even when Unity is unfocused.
+    /// Uses ConcurrentQueue + EditorApplication.update for main-thread marshaling.
+    /// Background editor throttling can still delay command execution.
     /// Survives domain reloads via InitializeOnLoad.
     /// </summary>
     [InitializeOnLoad]
@@ -29,10 +29,18 @@ namespace UnityCliConnector
     {
         const int DEFAULT_PORT = 8090;
         const int MAX_PORT_ATTEMPTS = 10;
+        const double AUTO_RESTART_INTERVAL = 1.0;
+        const double FAILURE_LOG_INTERVAL = 5.0;
 
         static HttpListener s_Listener;
         static CancellationTokenSource s_Cts;
         static int s_Port;
+        static SynchronizationContext s_MainContext;
+        static double s_NextStartAttemptTime;
+        static string s_LastFailureMessage;
+        static double s_LastFailureLogTime;
+        static bool s_Stopping;
+        static bool s_RestartPending;
 
         static readonly ConcurrentQueue<WorkItem> s_Queue = new();
 
@@ -45,6 +53,7 @@ namespace UnityCliConnector
 
         static HttpServer()
         {
+            s_MainContext = SynchronizationContext.Current;
             Start();
             EditorApplication.quitting += Stop;
             AssemblyReloadEvents.beforeAssemblyReload += StopListener;
@@ -53,44 +62,98 @@ namespace UnityCliConnector
         }
 
         public static int Port => s_Port;
+        public static bool IsRunning => s_Listener != null && s_Listener.IsListening;
 
         static void Start()
         {
-            if (s_Listener != null) return;
+            s_Stopping = false;
+            if (IsRunning) return;
+            if (s_Listener != null) StopListener();
+            s_Stopping = false;
 
             for (var attempt = 0; attempt < MAX_PORT_ATTEMPTS; attempt++)
             {
                 var port = DEFAULT_PORT + attempt;
-                try
-                {
-                    var listener = new HttpListener();
-                    listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-                    listener.Start();
-
-                    s_Listener = listener;
-                    s_Port = port;
-                    s_Cts = new CancellationTokenSource();
-
-                    _ = ListenLoop(s_Cts.Token);
-
-                    Debug.Log($"[UnityCliConnector] HTTP server started on port {port}");
+                if (TryStartOnPort(port))
                     return;
-                }
-                catch (HttpListenerException)
-                {
-                    // Port in use, try next
-                }
-                catch (System.Net.Sockets.SocketException)
-                {
-                    // Windows/Mono throws SocketException instead of HttpListenerException
-                }
             }
 
-            Debug.LogError("[UnityCliConnector] Failed to start HTTP server — no available port");
+            Heartbeat.MarkStopped();
+            ScheduleRetry();
+            LogStartFailure("[UnityCliConnector] Failed to start HTTP server — no available port", true);
+        }
+
+        static bool TryStartOnPort(int port)
+        {
+            try
+            {
+                var listener = new HttpListener();
+                listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+                listener.Start();
+
+                s_Listener = listener;
+                s_Port = port;
+                var cts = new CancellationTokenSource();
+                s_Cts = cts;
+                ClearRetry();
+                ClearStartFailure();
+
+                _ = ListenLoop(listener, cts);
+
+                Debug.Log($"[UnityCliConnector] HTTP server started on port {port}");
+                return true;
+            }
+            catch (HttpListenerException)
+            {
+                return false;
+            }
+            catch (System.Net.Sockets.SocketException)
+            {
+                // Windows/Mono throws SocketException instead of HttpListenerException
+                return false;
+            }
+            catch (Exception ex)
+            {
+                ScheduleRetry();
+                LogStartFailure($"[UnityCliConnector] Failed to start HTTP server on port {port}: {ex.Message}", true);
+                return false;
+            }
+        }
+
+        static void ScheduleRetry()
+        {
+            s_NextStartAttemptTime = EditorApplication.timeSinceStartup + AUTO_RESTART_INTERVAL;
+        }
+
+        static void ClearRetry()
+        {
+            s_NextStartAttemptTime = 0;
+        }
+
+        static void LogStartFailure(string message, bool error = false)
+        {
+            var now = EditorApplication.timeSinceStartup;
+            if (s_LastFailureMessage == message && now - s_LastFailureLogTime < FAILURE_LOG_INTERVAL)
+                return;
+
+            s_LastFailureMessage = message;
+            s_LastFailureLogTime = now;
+            if (error) Debug.LogError(message);
+            else Debug.LogWarning(message);
+        }
+
+        static void ClearStartFailure()
+        {
+            s_LastFailureMessage = null;
+            s_LastFailureLogTime = 0;
         }
 
         static void StopListener()
         {
+            s_Stopping = true;
+            s_RestartPending = false;
+            ClearRetry();
+
             if (s_Listener == null) return;
 
             s_Cts?.Cancel();
@@ -113,17 +176,33 @@ namespace UnityCliConnector
         {
             var port = s_Port;
             StopListener();
+            Heartbeat.MarkStopped();
             Debug.Log($"[UnityCliConnector] HTTP server stopped (was port {port})");
         }
 
         static void ForceEditorUpdate()
         {
-            try { UnityEditorInternal.InternalEditorUtility.RepaintAllViews(); }
-            catch { }
+            s_MainContext?.Post(_ =>
+            {
+                try { EditorApplication.QueuePlayerLoopUpdate(); }
+                catch { }
+                try { UnityEditorInternal.InternalEditorUtility.RepaintAllViews(); }
+                catch { }
+            }, null);
         }
 
         static void ProcessQueue()
         {
+            if (s_RestartPending)
+            {
+                s_RestartPending = false;
+                Heartbeat.MarkStopped();
+                ScheduleRetry();
+            }
+
+            if (!IsRunning && s_NextStartAttemptTime > 0 && EditorApplication.timeSinceStartup >= s_NextStartAttemptTime)
+                Start();
+
             while (s_Queue.TryDequeue(out var item))
                 ProcessItem(item);
         }
@@ -141,22 +220,50 @@ namespace UnityCliConnector
             }
         }
 
-        static async Task ListenLoop(CancellationToken ct)
+        static async Task ListenLoop(HttpListener listener, CancellationTokenSource cts)
         {
-            while (ct.IsCancellationRequested == false && s_Listener?.IsListening == true)
+            var ct = cts.Token;
+            try
             {
-                try
+                while (!ct.IsCancellationRequested)
                 {
-                    var context = await s_Listener.GetContextAsync();
-                    _ = HandleRequest(context);
+                    if (listener == null || !listener.IsListening) break;
+
+                    try
+                    {
+                        var context = await listener.GetContextAsync();
+                        _ = HandleRequest(context);
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        break;
+                    }
+                    catch (HttpListenerException)
+                    {
+                        break;
+                    }
                 }
-                catch (ObjectDisposedException)
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[UnityCliConnector] ListenLoop crashed: {ex.Message}");
+            }
+            finally
+            {
+                if (!ct.IsCancellationRequested && !s_Stopping && ReferenceEquals(s_Listener, listener))
                 {
-                    break;
-                }
-                catch (HttpListenerException)
-                {
-                    break;
+                    try
+                    {
+                        listener.Stop();
+                        listener.Close();
+                    }
+                    catch
+                    {
+                    }
+                    s_Listener = null;
+                    if (ReferenceEquals(s_Cts, cts))
+                        s_Cts = null;
+                    s_RestartPending = true;
                 }
             }
         }
@@ -212,7 +319,7 @@ namespace UnityCliConnector
                     }
                     else
                     {
-                        var tcs = new TaskCompletionSource<object>();
+                        var tcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
                         s_Queue.Enqueue(new WorkItem
                         {
                             Command = command,

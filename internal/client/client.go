@@ -19,13 +19,14 @@ import (
 
 // Instance represents a running Unity Editor discovered from ~/.unity-cli/instances/.
 type Instance struct {
-	State         string `json:"state"`
-	ProjectPath   string `json:"projectPath"`
-	Port          int    `json:"port"`
-	PID           int    `json:"pid"`
-	UnityVersion  string `json:"unityVersion,omitempty"`
-	Timestamp     int64  `json:"timestamp,omitempty"`
-	CompileErrors bool   `json:"compileErrors,omitempty"`
+	State            string `json:"state"`
+	ProjectPath      string `json:"projectPath"`
+	Port             int    `json:"port"`
+	PID              int    `json:"pid"`
+	UnityVersion     string `json:"unityVersion,omitempty"`
+	ConnectorVersion string `json:"connectorVersion,omitempty"`
+	Timestamp        int64  `json:"timestamp,omitempty"`
+	CompileErrors    bool   `json:"compileErrors,omitempty"`
 }
 
 // CommandRequest is the JSON body sent to Unity's HTTP server.
@@ -107,7 +108,11 @@ func FindByPort(port int) (*Instance, error) {
 	return best, nil
 }
 
-// FindActiveByPort is like FindByPort but skips stopped instances.
+func isActiveInstance(inst Instance) bool {
+	return inst.State != "stopped" && inst.Timestamp > 0
+}
+
+// FindActiveByPort is like FindByPort but skips stopped or incomplete instances.
 // Used by polling paths (waitForAlive, waitForReady) that only care about live instances.
 func FindActiveByPort(port int) (*Instance, error) {
 	instances, err := ScanInstances()
@@ -116,7 +121,7 @@ func FindActiveByPort(port int) (*Instance, error) {
 	}
 	var best *Instance
 	for i, inst := range instances {
-		if inst.Port != port || inst.State == "stopped" {
+		if inst.Port != port || !isActiveInstance(inst) {
 			continue
 		}
 		if best == nil || inst.Timestamp > best.Timestamp {
@@ -130,12 +135,12 @@ func FindActiveByPort(port int) (*Instance, error) {
 }
 
 // DiscoverInstance finds a running Unity instance from ~/.unity-cli/instances/.
-// If port > 0, skips discovery and connects directly.
+// If port > 0, matches an active instance by port.
 // If project is set, matches by project path substring.
 // Otherwise returns the most recently active instance.
 func DiscoverInstance(project string, port int) (*Instance, error) {
 	if port > 0 {
-		return &Instance{ProjectPath: "override", Port: port}, nil
+		return FindActiveByPort(port)
 	}
 
 	instances, err := ScanInstances()
@@ -146,7 +151,7 @@ func DiscoverInstance(project string, port int) (*Instance, error) {
 	// Filter out stopped instances
 	var alive []Instance
 	for _, inst := range instances {
-		if inst.State == "stopped" {
+		if !isActiveInstance(inst) {
 			continue
 		}
 		alive = append(alive, inst)

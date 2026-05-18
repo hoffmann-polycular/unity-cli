@@ -77,11 +77,11 @@ Once added, the Connector starts automatically when Unity opens. No configuratio
 
 ### Recommended: Disable Editor Throttling
 
-By default, Unity throttles editor updates when the window is unfocused. This means CLI commands may not execute until you click back into Unity.
+By default, Unity throttles editor updates when the window is unfocused. This can delay CLI commands because Unity API work is dispatched on the Editor main thread.
 
 To fix this, go to **Edit → Preferences → General → Interaction Mode** and set it to **No Throttling**.
 
-This ensures CLI commands are processed immediately, even when Unity is in the background.
+The connector also requests a PlayerLoop update whenever a CLI request arrives. No Throttling is still recommended for the most responsive background behavior.
 
 ## Quick Start
 
@@ -170,11 +170,14 @@ unity-cli editor stop
 # Toggle pause (only works during play mode)
 unity-cli editor pause
 
-# Refresh assets
+# Refresh assets (blocked in play mode unless --force is set)
 unity-cli editor refresh
 
-# Refresh and recompile scripts (waits for compilation to finish)
+# Refresh and recompile scripts (also blocked in play mode unless --force is set)
 unity-cli editor refresh --compile
+
+# Force refresh while in play mode
+unity-cli editor refresh --force
 ```
 
 ### Console Logs
@@ -293,11 +296,14 @@ unity-cli test
 # Run PlayMode tests
 unity-cli test --mode PlayMode
 
+# Save dirty open scenes before running tests
+unity-cli test --auto-save-scenes
+
 # Filter by test name (substring match)
 unity-cli test --filter MyTestClass
 ```
 
-Requires the Unity Test Framework package. PlayMode tests trigger a domain reload — the CLI polls for results automatically.
+Requires the Unity Test Framework package. Tests are blocked by default when any open scene has unsaved changes. Use `--auto-save-scenes` to save them first, or `--allow-dirty-scenes` to run anyway. PlayMode tests trigger a domain reload — the CLI polls for results automatically.
 
 ### List Tools
 
@@ -333,16 +339,20 @@ The CLI also checks Unity's state automatically before sending any command. If U
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--port <N>` | Override Unity instance port (skip auto-discovery) | auto |
+| `--port <N>` | Select Unity instance by active heartbeat port | auto |
 | `--project <path>` | Select Unity instance by project path | latest |
 | `--timeout <ms>` | HTTP request timeout | 120000 |
+| `--ignore-version-mismatch` | Run even when CLI and connector versions differ | false |
 
 ```bash
-# Connect to a specific Unity instance
+# Select an active Unity instance by heartbeat port
 unity-cli --port 8091 editor play
 
 # Select by project path when multiple Unity instances are open
 unity-cli --project MyGame editor stop
+
+# Run anyway when the installed connector has a different release version
+unity-cli --ignore-version-mismatch status
 ```
 
 Use `--help` on any command for detailed usage:
@@ -449,7 +459,7 @@ ls ~/.unity-cli/instances/
 # Select by project path
 unity-cli --project MyGame editor play
 
-# Select by port
+# Select by active heartbeat port
 unity-cli --port 8091 editor play
 
 # Default: uses the most recently registered instance

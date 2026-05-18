@@ -12,8 +12,8 @@ import (
 )
 
 // editorCmd controls Unity play mode and asset database.
-// port is needed for waitForReady (refresh --compile blocks until compilation finishes).
-func editorCmd(args []string, send sendFn, port int) (*client.CommandResponse, error) {
+// resolve is needed for waitForReady so compile polling can follow the current project instance.
+func editorCmd(args []string, send sendFn, resolve instanceResolver) (*client.CommandResponse, error) {
 	if len(args) == 0 {
 		return nil, fmt.Errorf("usage: unity-cli editor <play|stop|pause|refresh>")
 	}
@@ -37,21 +37,29 @@ func editorCmd(args []string, send sendFn, port int) (*client.CommandResponse, e
 
 	case "refresh":
 		_, compile := flags["compile"]
+		_, force := flags["force"]
+		params := map[string]interface{}{}
+		if force {
+			params["force"] = true
+			params["mode"] = "force"
+		}
 		if compile {
-			resp, err := send("refresh_unity", map[string]interface{}{
-				"compile": "request",
-			})
+			params["compile"] = "request"
+			resp, err := send("refresh_unity", params)
 			if err != nil {
 				return nil, err
 			}
-			hasErrors := waitForReady(port)
+			if !resp.Success {
+				return resp, nil
+			}
+			hasErrors := waitForReady(resolve)
 			if hasErrors {
 				return nil, fmt.Errorf("compilation finished with errors (check unity-cli console)")
 			}
 			resp.Message = "Refresh and compilation completed."
 			return resp, nil
 		}
-		return send("refresh_unity", map[string]interface{}{})
+		return send("refresh_unity", params)
 
 	default:
 		return nil, fmt.Errorf("unknown editor action: %s\nAvailable: play, stop, pause, refresh", action)
