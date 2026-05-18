@@ -30,23 +30,25 @@ using UnityEngine;
 namespace UnityCliConnector.Tools
 {
 	/// <summary>
-	/// Destroy GameObjects (and their children) by path. Supports single
-	/// deletions, ambiguity resolution via <c>--all</c>, and batch deletion
-	/// when multiple paths are supplied via stdin or positional args.
+	/// Destroy GameObjects (and their children) by path.
 	///
-	/// All deletions register with Undo so the Editor's undo stack records them.
+	/// v3 semantics:
+	///   - Selection-anchored paths fan out implicitly across the current
+	///     selection.
+	///   - Hierarchy / asset / instance-id paths resolve to a single target.
+	///   - Multiple positional paths (or stdin lines) are supported for
+	///     batch deletion.
+	///   - Every delete is registered with Undo, all collapsed into one
+	///     group so a single Ctrl-Z reverses the operation.
 	/// </summary>
 	[UnityCliTool(Name = "delete",
-		Description = "Destroy a GameObject and its children. Supports --all for ambiguous matches and batch via stdin.")]
+		Description = "Destroy GameObjects. Fan-out across selection is implicit; multiple paths via positionals or stdin.")]
 	public static class Delete
 	{
 		public class Parameters
 		{
 			[ToolParameter("GameObject path to delete. Optional with batch mode (stdin or multiple positionals).")]
 			public string Path { get; set; }
-
-			[ToolParameter("Broadcast to all GameObjects matching the path (no ambiguity error).")]
-			public bool All { get; set; }
 		}
 
 		public static object HandleCommand(JObject @params)
@@ -56,13 +58,21 @@ namespace UnityCliConnector.Tools
 			// Batch mode: multiple positional paths from stdin or command line.
 			var args = p.GetRaw("args") as JArray;
 			var singlePath = p.Get("path");
-			var all = p.GetBool("all");
+
+			// Wrap the whole operation in a single Undo group.
+			var undoGroup = Undo.GetCurrentGroup();
+			Undo.IncrementCurrentGroup();
+			Undo.SetCurrentGroupName("delete");
 
 			// If we have positional args (from batch / stdin), delete each.
 			if (args != null && args.Count > 0)
-				return DoBatch(args, all);
+			{
+				var batchResult = DoBatch(args);
+				Undo.CollapseUndoOperations(undoGroup);
+				return batchResult;
+			}
 
-			// Single path mode.
+			// Single path mode (which may still fan out across selection).
 			if (string.IsNullOrWhiteSpace(singlePath))
 				return new ErrorResponse("delete requires a path, or pass paths on stdin for batch deletion.");
 
@@ -70,22 +80,15 @@ namespace UnityCliConnector.Tools
 			if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
 			var parsed = parseResult.Value;
 
+			var targetsRes = PathResolver.ResolveTargets(parsed);
+			if (!targetsRes.IsSuccess) return ErrorResponse.FromResult(targetsRes);
+
 			var deleted = new List<string>();
 			var errors = new List<string>();
+			foreach (var go in targetsRes.Value)
+				DoDeleteOne(go, deleted, errors);
 
-			if (all)
-			{
-				var allRes = PathResolver.ResolveGameObjectsAll(parsed);
-				if (!allRes.IsSuccess) return ErrorResponse.FromResult(allRes);
-				foreach (var go in allRes.Value)
-					DoDeleteOne(go, deleted, errors);
-			}
-			else
-			{
-				var goRes = PathResolver.ResolveGameObject(parsed);
-				if (!goRes.IsSuccess) return ErrorResponse.FromResult(goRes);
-				DoDeleteOne(goRes.Value, deleted, errors);
-			}
+			Undo.CollapseUndoOperations(undoGroup);
 
 			if (deleted.Count == 0 && errors.Count > 0)
 				return new ErrorResponse(errors.Count == 1 ? errors[0] : string.Join("\n", errors));
@@ -104,7 +107,7 @@ namespace UnityCliConnector.Tools
 			return new SuccessResponse(msg, data);
 		}
 
-		private static object DoBatch(JArray args, bool all)
+		private static object DoBatch(JArray args)
 		{
 			var deleted = new List<string>();
 			var errors = new List<string>();
@@ -118,19 +121,11 @@ namespace UnityCliConnector.Tools
 				if (!parseResult.IsSuccess) { errors.Add($"{pathStr}: {parseResult.ErrorMessage}"); continue; }
 				var parsed = parseResult.Value;
 
-				if (all)
-				{
-					var allRes = PathResolver.ResolveGameObjectsAll(parsed);
-					if (!allRes.IsSuccess) { errors.Add($"{pathStr}: {allRes.ErrorMessage}"); continue; }
-					foreach (var go in allRes.Value)
-						DoDeleteOne(go, deleted, errors);
-				}
-				else
-				{
-					var goRes = PathResolver.ResolveGameObject(parsed);
-					if (!goRes.IsSuccess) { errors.Add($"{pathStr}: {goRes.ErrorMessage}"); continue; }
-					DoDeleteOne(goRes.Value, deleted, errors);
-				}
+				var targetsRes = PathResolver.ResolveTargets(parsed);
+				if (!targetsRes.IsSuccess) { errors.Add($"{pathStr}: {targetsRes.ErrorMessage}"); continue; }
+
+				foreach (var go in targetsRes.Value)
+					DoDeleteOne(go, deleted, errors);
 			}
 
 			if (deleted.Count == 0 && errors.Count > 0)

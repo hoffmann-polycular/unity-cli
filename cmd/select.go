@@ -25,8 +25,6 @@
 package cmd
 
 import (
-	"io"
-	"os"
 	"strings"
 
 	"github.com/youngwoocho02/unity-cli/internal/client"
@@ -35,11 +33,12 @@ import (
 // selectCmd bridges the Editor's Selection with the terminal.
 //
 // Forms:
-//   select <path>           set selection
-//   select --get            list selected paths
-//   select --add <path>     add to selection
-//   select --clear          deselect all
-//   echo <path> | select    pipe path as selection (or with --add)
+//
+//	select <path>           set selection
+//	select --get            list selected paths
+//	select --add <path>     add to selection
+//	select --clear          deselect all
+//	echo <path> | select    pipe path as selection (or with --add)
 func selectCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	// Check for non-positional flags.
 	hasGet := contains(args, "--get")
@@ -67,11 +66,12 @@ func selectCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	}
 
 	// If no positional path and we're not in --get or --clear mode,
-	// try to read from stdin (for piping from `find` etc).
+	// try to read from stdin (for piping from `ls --plain` etc).
+	// Stdin may contain multiple newline-separated paths (one per line),
+	// which we send as an args array so the connector resolves each one.
+	var stdinPaths []string
 	if positionalPath == "" && !hasGet && !hasClear {
-		if stdinPath := readStdinPath(); stdinPath != "" {
-			positionalPath = stdinPath
-		}
+		stdinPaths = readStdinPaths()
 	}
 
 	params := map[string]interface{}{
@@ -79,8 +79,13 @@ func selectCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 		"clear": hasClear,
 		"add":   hasAdd,
 	}
-	if positionalPath != "" {
+	switch {
+	case positionalPath != "":
 		params["path"] = positionalPath
+	case len(stdinPaths) == 1:
+		params["path"] = stdinPaths[0]
+	case len(stdinPaths) > 1:
+		params["args"] = stdinPaths
 	}
 
 	return send("select", params)
@@ -95,17 +100,3 @@ func contains(args []string, flag string) bool {
 	return false
 }
 
-func readStdinPath() string {
-	info, err := os.Stdin.Stat()
-	if err != nil {
-		return ""
-	}
-	if info.Mode()&os.ModeCharDevice != 0 {
-		return ""
-	}
-	data, err := io.ReadAll(os.Stdin)
-	if err != nil || len(data) == 0 {
-		return ""
-	}
-	return strings.TrimRight(string(data), "\r\n")
-}

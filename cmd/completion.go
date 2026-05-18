@@ -35,7 +35,8 @@ import (
 // completionCmd emits a shell completion script for the given shell.
 //
 // Usage:
-//   unity-cli completion <bash|zsh|fish|powershell>
+//
+//	unity-cli completion <bash|zsh|fish|powershell>
 //
 // The emitted script defines a completion function that calls back into
 // `unity-cli __complete <N> <args...>` to get candidates at completion time.
@@ -61,7 +62,8 @@ func completionCmd(args []string) error {
 // completeDispatchCmd is the hidden command shells call to get candidates.
 //
 // Usage:
-//   unity-cli __complete <wordIndex> <word0> <word1> ... <wordN>
+//
+//	unity-cli __complete <wordIndex> <word0> <word1> ... <wordN>
 //
 // wordIndex is the index of the word being completed (0-based, after the
 // program name). Output is one candidate per line; empty output = no
@@ -569,4 +571,3 @@ Register-ArgumentCompleter -Native -CommandName unity-cli -ScriptBlock {
     }
 }
 `
-

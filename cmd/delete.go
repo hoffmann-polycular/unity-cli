@@ -32,45 +32,41 @@ import (
 	"github.com/youngwoocho02/unity-cli/internal/client"
 )
 
-// deleteCmd destroys GameObjects by path, with support for single, ambiguous
-// (--all), and batch (stdin) deletion.
+// deleteCmd destroys GameObjects by path. Under v3, fan-out across the current
+// selection is implicit, so the legacy --all flag is no longer needed.
+// Multiple paths may be supplied as positionals or piped on stdin.
 //
 // Forms:
-//   delete <path>               delete a single object (error on ambiguity)
-//   delete <path> --all         delete all matches when ambiguous
-//   find ... --plain | delete   batch mode: delete each path from stdin
+//
+//	delete .                      delete the current selection (one or many)
+//	delete /World/Old             delete a single absolute path
+//	find ... --plain | delete     batch mode: delete each path from stdin
 func deleteCmd(args []string, send sendFn) (*client.CommandResponse, error) {
-	// Check for --all flag.
-	var hasAll bool
-	var filteredArgs []string
+	// Pull positional path(s) if given.
+	var positionals []string
 	for _, a := range args {
+		// Tolerate (and silently drop) the obsolete --all flag for users who
+		// remember the old syntax — fan-out is now the default behavior.
 		if a == "--all" {
-			hasAll = true
-		} else {
-			filteredArgs = append(filteredArgs, a)
+			continue
 		}
+		positionals = append(positionals, a)
 	}
 
-	// Pull positional path if given.
-	var positionalPath string
-	if len(filteredArgs) > 0 {
-		positionalPath = filteredArgs[0]
-	}
+	params := map[string]interface{}{}
 
-	// If no positional and stdin is piped, read all lines as batch paths.
-	var batchPaths []string
-	if positionalPath == "" {
-		batchPaths = readStdinPaths()
-	}
-
-	params := map[string]interface{}{
-		"all": hasAll,
-	}
-	if positionalPath != "" {
-		params["path"] = positionalPath
-	}
-	if len(batchPaths) > 0 {
-		params["args"] = batchPaths
+	switch len(positionals) {
+	case 0:
+		// No positional and stdin piped → batch mode.
+		batchPaths := readStdinPaths()
+		if len(batchPaths) > 0 {
+			params["args"] = batchPaths
+		}
+	case 1:
+		params["path"] = positionals[0]
+	default:
+		// Multiple positionals → batch.
+		params["args"] = positionals
 	}
 
 	return send("delete", params)

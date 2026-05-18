@@ -51,39 +51,37 @@ namespace UnityCliConnector.Tools
 			if (string.IsNullOrEmpty(dst))
 				return Result<(string, string)>.Error("Destination path is empty.");
 
-			// Scene-root forms.
-			if (dst == "/")
-				return Result<(string, string)>.Success((SceneRootSentinel, srcName));
-			if (dst.StartsWith("/"))
-			{
-				var afterSlash = dst.Substring(1);
-				if (afterSlash.Contains("/"))
-				{
-					// "/A/B" → scene root + nested target. Treat the leading
-					// slash as scene-root anchor; first segment is the new name
-					// only if there are no further slashes. Reject ambiguity.
-					return Result<(string, string)>.Error(
-						"A leading '/' anchors the scene root; the remainder must be a single name (no further slashes).");
-				}
-				return Result<(string, string)>.Success((SceneRootSentinel, afterSlash));
-			}
-
+			// Trailing-slash forms keep the source's name; otherwise the last
+			// segment is the new name.
+			//   "/"            → scene root, keep src name
+			//   "/Items/"      → /Items parent, keep src name
+			//   "/Items/Foo"   → /Items parent, rename to Foo
+			//   "Items/Foo"    → Items parent (selection-anchored), rename to Foo
+			//   "Foo"          → no parent path supplied (ambiguous, reject)
+			string parentPath;
+			string newName;
 			if (dst.EndsWith("/"))
 			{
-				var parent = dst.TrimEnd('/');
-				return Result<(string, string)>.Success((parent, srcName));
+				parentPath = dst.Substring(0, dst.Length - 1);
+				newName = srcName;
+			}
+			else
+			{
+				var lastSlash = dst.LastIndexOf('/');
+				if (lastSlash < 0)
+					return Result<(string, string)>.Error(
+						"Destination must include a parent path. Use 'parent/name', 'parent/' to keep the source name, " +
+						"'/Name' for the scene root, or '/' to keep the source name at the scene root.");
+				parentPath = dst.Substring(0, lastSlash);
+				newName = dst.Substring(lastSlash + 1);
+				if (string.IsNullOrEmpty(newName))
+					return Result<(string, string)>.Error("Destination new-name segment is empty.");
 			}
 
-			var lastSlash = dst.LastIndexOf('/');
-			if (lastSlash < 0)
-				return Result<(string, string)>.Error(
-					"Destination must include a parent path. Use 'parent/name', 'parent/' to keep the source name, or '/Name' for the scene root.");
-
-			var parentPath = dst.Substring(0, lastSlash);
-			var newName = dst.Substring(lastSlash + 1);
-			if (string.IsNullOrEmpty(parentPath) || string.IsNullOrEmpty(newName))
-				return Result<(string, string)>.Error(
-					"Destination parent and name must both be non-empty.");
+			// Empty parentPath = scene root sentinel. Anything else is a real
+			// hierarchy path that PathParser resolves.
+			if (string.IsNullOrEmpty(parentPath))
+				return Result<(string, string)>.Success((SceneRootSentinel, newName));
 			return Result<(string, string)>.Success((parentPath, newName));
 		}
 

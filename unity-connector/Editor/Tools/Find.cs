@@ -136,6 +136,9 @@ namespace UnityCliConnector.Tools
 		private static object DoSceneSearch(ToolParams p, JObject @params, string scopePath)
 		{
 			var nameGlob = p.Get("name");
+			var namePrefix = p.Get("name-prefix");
+			var nameSuffix = p.Get("name-suffix");
+			var nameContains = p.Get("name-contains");
 			var regex = p.Get("regex");
 			var components = GetStringList(@params, "component");
 			var missing = GetStringList(@params, "missing");
@@ -145,10 +148,17 @@ namespace UnityCliConnector.Tools
 			var wantOverrides = p.GetBool("has_overrides");
 			var wantActive = p.GetBool("active");
 			var wantInactive = p.GetBool("inactive");
-			var format = (p.Get("format") ?? "human").ToLowerInvariant();
+			var format = (p.Get("format") ?? "plain").ToLowerInvariant();
 
 			if (!string.IsNullOrEmpty(nameGlob) && !string.IsNullOrEmpty(regex))
 				return new ErrorResponse("--name and --regex are mutually exclusive.");
+
+			// --name-prefix/suffix/contains are mutually exclusive with --name/--regex
+			var hasSimpleNameFilter = !string.IsNullOrEmpty(namePrefix)
+				|| !string.IsNullOrEmpty(nameSuffix)
+				|| !string.IsNullOrEmpty(nameContains);
+			if (hasSimpleNameFilter && (!string.IsNullOrEmpty(nameGlob) || !string.IsNullOrEmpty(regex)))
+				return new ErrorResponse("--name-prefix/suffix/contains cannot be combined with --name or --regex.");
 
 			if (wantActive && wantInactive)
 				return new ErrorResponse("--active and --inactive are mutually exclusive.");
@@ -186,6 +196,9 @@ namespace UnityCliConnector.Tools
 			var filter = new SceneFilter
 			{
 				NameRegex = nameRegex,
+				NamePrefix = namePrefix,
+				NameSuffix = nameSuffix,
+				NameContains = nameContains,
 				RequiredTypes = requiredTypes,
 				ForbiddenTypes = forbiddenTypes,
 				Tag = tagFilter,
@@ -196,18 +209,33 @@ namespace UnityCliConnector.Tools
 				WantInactive = wantInactive,
 			};
 
-			// Resolve the scope: a path positional narrows the search to
-			// that GameObject's subtree (the GameObject itself is excluded —
-			// `find` returns descendants matching the filters, not the
-			// scope itself).
+			// Resolve the scope: a path positional narrows the search to the
+			// subtree(s) of the resolved object(s). The scope objects themselves
+			// are excluded from results — search starts from their children.
+			//
+			// Special case: a bare "/" (Hierarchy anchor, no segments) means
+			// "the whole hierarchy" — identical to no-scope. Scene roots are
+			// used as-is as CollectScene entry points so they can match filters.
 			List<GameObject> roots;
 			if (!string.IsNullOrEmpty(scopePath))
 			{
 				var parsedScope = PathParser.Parse(scopePath);
 				if (!parsedScope.IsSuccess) return ErrorResponse.FromResult(parsedScope);
-				var scopeRes = PathResolver.ResolveGameObject(parsedScope.Value);
-				if (!scopeRes.IsSuccess) return ErrorResponse.FromResult(scopeRes);
-				roots = PathResolver.GetImmediateChildren(scopeRes.Value);
+
+				// "/" or "." / bare with empty selection → "the whole hierarchy".
+				// Treat as no-scope so scene roots themselves can match.
+				if (IsHierarchyRootScope(parsedScope.Value))
+				{
+					roots = PathResolver.GetSceneRoots();
+				}
+				else
+				{
+					var scopeRes = PathResolver.ResolveTargets(parsedScope.Value);
+					if (!scopeRes.IsSuccess) return ErrorResponse.FromResult(scopeRes);
+					roots = new List<GameObject>();
+					foreach (var scope in scopeRes.Value)
+						roots.AddRange(PathResolver.GetImmediateChildren(scope));
+				}
 			}
 			else
 			{
@@ -229,9 +257,37 @@ namespace UnityCliConnector.Tools
 			};
 		}
 
+		/// <summary>
+		/// Returns true when a parsed scope path means "the whole hierarchy" —
+		/// i.e. bare "/" (Hierarchy anchor, no segments) OR bare "." / ""
+		/// (Selection anchor, no segments, no parent jumps) with an empty
+		/// selection so it falls back to the hierarchy root per §4.4.
+		/// In both cases the scene roots themselves should be included in
+		/// find results, so we skip the GetImmediateChildren exclusion step.
+		/// </summary>
+		private static bool IsHierarchyRootScope(ParsedPath p)
+		{
+			if (p.Kind != PathKind.Scene) return false;
+			var hasSegments = p.Segments != null && p.Segments.Count > 0;
+			if (hasSegments) return false;
+
+			if (p.Anchor == PathAnchor.Hierarchy) return true; // bare "/"
+
+			// Selection anchor with no parent jumps and empty selection → §4.4 root fallback.
+			if (p.Anchor == PathAnchor.Selection
+				&& p.ParentJumps == 0
+				&& PathResolver.SelectionSnapshot().Count == 0)
+				return true;
+
+			return false;
+		}
+
 		private class SceneFilter
 		{
 			public Regex NameRegex;
+			public string NamePrefix;
+			public string NameSuffix;
+			public string NameContains;
 			public List<Type> RequiredTypes;
 			public List<Type> ForbiddenTypes;
 			public string Tag;
@@ -252,6 +308,16 @@ namespace UnityCliConnector.Tools
 		private static bool MatchesScene(GameObject go, SceneFilter f)
 		{
 			if (f.NameRegex != null && !f.NameRegex.IsMatch(go.name)) return false;
+
+			if (!string.IsNullOrEmpty(f.NamePrefix)
+				&& !go.name.StartsWith(f.NamePrefix, StringComparison.OrdinalIgnoreCase))
+				return false;
+			if (!string.IsNullOrEmpty(f.NameSuffix)
+				&& !go.name.EndsWith(f.NameSuffix, StringComparison.OrdinalIgnoreCase))
+				return false;
+			if (!string.IsNullOrEmpty(f.NameContains)
+				&& go.name.IndexOf(f.NameContains, StringComparison.OrdinalIgnoreCase) < 0)
+				return false;
 
 			if (f.WantActive && !go.activeInHierarchy) return false;
 			if (f.WantInactive && go.activeInHierarchy) return false;
@@ -373,7 +439,7 @@ namespace UnityCliConnector.Tools
 			var type = p.Get("type");
 			var label = p.Get("label");
 			var area = p.Get("area");
-			var format = (p.Get("format") ?? "human").ToLowerInvariant();
+			var format = (p.Get("format") ?? "plain").ToLowerInvariant();
 
 			SplitPathSpec(pathSpec, out var searchFolders, out var pathRegex);
 

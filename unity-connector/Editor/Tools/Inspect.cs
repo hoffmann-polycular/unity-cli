@@ -35,8 +35,11 @@ namespace UnityCliConnector.Tools
 	/// GameObject + component list, a single component's serialized
 	/// properties, or one property value.
 	///
-	/// <c>--overrides-only</c> trims to properties whose value differs
-	/// from the prefab source — the same red-bar state the Inspector shows.
+	/// v3: paths fan out across the current selection. <c>inspect</c> with
+	/// a multi-selection emits one block per target. <c>--overrides-only</c>
+	/// trims to properties whose value differs from the prefab source.
+	///
+	/// Also handles ProjectSettings paths.
 	/// </summary>
 	[UnityCliTool(Name = "inspect",
 		Description = "Inspect a GameObject, Component, or property. Mirrors the Inspector view.")]
@@ -44,7 +47,7 @@ namespace UnityCliConnector.Tools
 	{
 		public class Parameters
 		{
-			[ToolParameter("Path to a GameObject, Component, or property.", Required = true)]
+			[ToolParameter("Path to a GameObject, Component, property, or ProjectSettings group.", Required = true)]
 			public string Path { get; set; }
 
 			[ToolParameter("Only show values overridden from the prefab source.")]
@@ -63,17 +66,44 @@ namespace UnityCliConnector.Tools
 			var format = (p.Get("format") ?? "human").ToLowerInvariant();
 
 			if (string.IsNullOrWhiteSpace(path))
-				return new ErrorResponse("inspect requires a path (GameObject, Component, or property).");
+				return new ErrorResponse("inspect requires a path (GameObject, Component, property, or ProjectSettings/...).");
 
 			var parseResult = PathParser.Parse(path);
 			if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
 			var parsed = parseResult.Value;
 
-			var goResult = PathResolver.ResolveGameObject(parsed);
-			if (!goResult.IsSuccess) return ErrorResponse.FromResult(goResult);
-			var go = goResult.Value;
+			// ProjectSettings has its own backend.
+			if (parsed.Kind == PathKind.ProjectSettings)
+				return InspectProjectSettings(parsed, format);
 
-			// No component → GameObject view.
+			// All other kinds resolve to GameObject targets via the v3 fan-out resolver.
+			var targetsRes = PathResolver.ResolveTargets(parsed);
+			if (!targetsRes.IsSuccess) return ErrorResponse.FromResult(targetsRes);
+			var targets = targetsRes.Value;
+
+			// Single target → simple shape (back-compat with single-target callers).
+			if (targets.Count == 1)
+				return RenderTarget(targets[0], parsed, overridesOnly, format);
+
+			// Multi-target fan-out → array of per-target results.
+			var results = new List<object>(targets.Count);
+			foreach (var go in targets)
+			{
+				var single = RenderTarget(go, parsed, overridesOnly, format);
+				results.Add(WrapForFanOut(go, single, format));
+			}
+
+			if (format == "json")
+				return new SuccessResponse("", new Dictionary<string, object>
+				{
+					["count"] = targets.Count,
+					["results"] = results,
+				});
+			return new SuccessResponse("", JoinHumanBlocks(results));
+		}
+
+		private static object RenderTarget(GameObject go, ParsedPath parsed, bool overridesOnly, string format)
+		{
 			if (!parsed.Component.IsPresent)
 				return RenderGameObject(go, overridesOnly, format);
 
@@ -81,11 +111,9 @@ namespace UnityCliConnector.Tools
 			if (!compResult.IsSuccess) return ErrorResponse.FromResult(compResult);
 			var component = compResult.Value;
 
-			// Component with no properties → full component dump.
 			if (parsed.Properties == null || parsed.Properties.Count == 0)
 				return RenderComponent(go, component, overridesOnly, format);
 
-			// Component + properties → drill down to the exact property.
 			using var so = new SerializedObject(component);
 			var root = PathResolver.FindPropertyByUserName(so, parsed.Properties[0]);
 			if (root == null)
@@ -103,6 +131,133 @@ namespace UnityCliConnector.Tools
 			}
 
 			return RenderProperty(go, component, parsed.Properties, current, format);
+		}
+
+		private static object WrapForFanOut(GameObject go, object renderResult, string format)
+		{
+			// Renderers return SuccessResponse / ErrorResponse; pull out the
+			// data (or error message) so the wrapping array carries clean
+			// per-target records.
+			var canonical = PathResolver.GetCanonicalPath(go);
+			switch (renderResult)
+			{
+				case SuccessResponse sr:
+					return new Dictionary<string, object>
+					{
+						["path"] = canonical,
+						["ok"] = true,
+						["data"] = sr.data,
+					};
+				case ErrorResponse er:
+					return new Dictionary<string, object>
+					{
+						["path"] = canonical,
+						["ok"] = false,
+						["error"] = er.message,
+					};
+				default:
+					return new Dictionary<string, object>
+					{
+						["path"] = canonical,
+						["data"] = renderResult,
+					};
+			}
+		}
+
+		private static string JoinHumanBlocks(List<object> entries)
+		{
+			var sb = new StringBuilder();
+			var first = true;
+			foreach (var entry in entries)
+			{
+				if (!(entry is Dictionary<string, object> dict)) continue;
+				if (!first) sb.Append("\n\n");
+				first = false;
+				if (dict.TryGetValue("ok", out var okObj) && okObj is bool ok && !ok)
+				{
+					sb.Append("# ").Append(dict["path"]).Append('\n')
+					  .Append("error: ").Append(dict["error"]);
+					continue;
+				}
+				if (dict.TryGetValue("data", out var data) && data is string s)
+				{
+					sb.Append(s);
+				}
+			}
+			return sb.ToString();
+		}
+
+		// ---- ProjectSettings view ----
+
+		private static object InspectProjectSettings(ParsedPath parsed, string format)
+		{
+			if (string.IsNullOrEmpty(parsed.SettingsGroup))
+			{
+				// "ProjectSettings/" or "ProjectSettings" — list groups.
+				var groups = ProjectSettingsResolver.ListGroups();
+				if (format == "json")
+					return new SuccessResponse("", new Dictionary<string, object>
+					{
+						["path"] = "ProjectSettings",
+						["groups"] = groups,
+					});
+				var sb = new StringBuilder("ProjectSettings\n");
+				foreach (var g in groups) sb.Append("  ").Append(g).Append('\n');
+				return new SuccessResponse("", sb.ToString().TrimEnd('\n'));
+			}
+
+			var soRes = ProjectSettingsResolver.LoadGroup(parsed.SettingsGroup);
+			if (!soRes.IsSuccess) return ErrorResponse.FromResult(soRes);
+			using var so = soRes.Value;
+
+			// Property drilling under settings (e.g. "ProjectSettings/Physics.gravity").
+			// The parser maps that to Component=__settings, Properties=["gravity"].
+			if (parsed.Component.IsPresent && parsed.Component.TypeName == PathParser.SettingsRootSentinel
+				&& parsed.Properties != null && parsed.Properties.Count > 0)
+			{
+				var root = PathResolver.FindPropertyByUserName(so, parsed.Properties[0]);
+				if (root == null)
+					return new ErrorResponse(
+						$"No property '{parsed.Properties[0]}' on ProjectSettings/{parsed.SettingsGroup}.",
+						ErrorKind.NotFound);
+				var current = root;
+				for (var i = 1; i < parsed.Properties.Count; i++)
+				{
+					var next = PathResolver.FindRelativeByUserName(current, parsed.Properties[i]);
+					if (next == null)
+						return new ErrorResponse(
+							$"No sub-property '{parsed.Properties[i]}' under '{JoinProps(parsed.Properties, i)}'.",
+							ErrorKind.NotFound);
+					current = next;
+				}
+				var value = SerializedPropertyReader.Read(current);
+				if (format == "json")
+					return new SuccessResponse("", new Dictionary<string, object>
+					{
+						["path"] = ProjectSettingsResolver.CanonicalPath(parsed.SettingsGroup),
+						["property"] = JoinProps(parsed.Properties, parsed.Properties.Count),
+						["type"] = current.propertyType.ToString(),
+						["value"] = value,
+					});
+				var sb = new StringBuilder();
+				sb.Append(ProjectSettingsResolver.CanonicalPath(parsed.SettingsGroup))
+				  .Append('.').Append(JoinProps(parsed.Properties, parsed.Properties.Count)).Append('\n');
+				AppendValueHuman(value, sb, depth: 1);
+				return new SuccessResponse("", sb.ToString().TrimEnd('\n'));
+			}
+
+			// Group root → dump all top-level properties.
+			var props = SerializedPropertyReader.ReadAll(so, overridesOnly: false);
+			if (format == "json")
+				return new SuccessResponse("", new Dictionary<string, object>
+				{
+					["path"] = ProjectSettingsResolver.CanonicalPath(parsed.SettingsGroup),
+					["properties"] = props,
+				});
+			var hsb = new StringBuilder();
+			hsb.Append(ProjectSettingsResolver.CanonicalPath(parsed.SettingsGroup)).Append('\n');
+			AppendPropsHuman(props, hsb, depth: 1);
+			return new SuccessResponse("", hsb.ToString().TrimEnd('\n'));
 		}
 
 		// ---- GameObject view ----
@@ -293,7 +448,6 @@ namespace UnityCliConnector.Tools
 					}
 					sb.Append('\n');
 					AppendPropsHuman(dict, sb, depth + 1);
-					// trim trailing newline we just added
 					if (sb.Length > 0 && sb[sb.Length - 1] == '\n') sb.Length--;
 					return;
 				case List<object> list:

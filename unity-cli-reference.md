@@ -14,34 +14,13 @@ tools (pipes, `jq`, `xargs`, `grep`, `awk`).
 - [Reference Resolution](#reference-resolution)
 - [Output Formats](#output-formats)
 - [Command Reference](#command-reference)
-  - Already implemented (existing tools)
-    - [exec](#exec)
-    - [editor](#editor)
-    - [console](#console)
-    - [menu](#menu)
-    - [screenshot](#screenshot)
-    - [reserialize](#reserialize)
-    - [profiler](#profiler)
-    - [test](#test)
-    - [status](#status)
-    - [list](#list)
-    - [update](#update)
-    - [completion](#completion)
-    - [Custom tools](#custom-tools)
-  - Planned additions (this doc's todo list)
-    - [ls](#ls)
-    - [find](#find)
-    - [inspect](#inspect)
-    - [get](#get)
-    - [set](#set)
-    - [component](#component)
-    - [select](#select)
-    - [create](#create)
-    - [delete](#delete)
-    - [cp](#cp)
-    - [mv](#mv)
-    - [reorder](#reorder)
-    - [prefab](#prefab)
+  - Scene navigation: [ls](#ls), [find](#find), [inspect](#inspect), [select](#select)
+  - Properties: [get](#get), [set](#set)
+  - Hierarchy mutation: [create](#create), [delete](#delete), [cp](#cp), [mv](#mv), [reorder](#reorder)
+  - Components: [component](#component)
+  - Prefabs: [prefab](#prefab)
+  - Editor control: [editor](#editor), [console](#console), [menu](#menu), [screenshot](#screenshot), [reserialize](#reserialize), [profiler](#profiler), [test](#test), [status](#status), [list](#list)
+  - Tooling: [exec](#exec), [update](#update), [completion](#completion), [Custom tools](#custom-tools)
 - [Common Usage Examples](#common-usage-examples)
 - [Tips and Tricks](#tips-and-tricks)
 
@@ -146,54 +125,148 @@ Existing structured tools (`editor`, `console`, `menu`, `screenshot`,
 (`EditorApplication`, `Debug.unityLogger` stream, `AssetDatabase.Refresh`,
 profiler sampler, Test Framework, etc.).
 
-Planned structured tools (`ls`, `find`, `inspect`, `get`, `set`,
-`component`, `create`, `delete`, `prefab`, …) will mutate scene and project
-state through Unity's own APIs (`SerializedObject` + `ApplyModifiedProperties`,
-`AssetDatabase`, `PrefabUtility`, `Undo`, `PrefabStageUtility`) — matching
-exactly what clicking in the Inspector / Hierarchy / Project windows would
-do, including proper undo registration and prefab override semantics.
+Structured scene/project tools (`ls`, `find`, `inspect`, `get`, `set`,
+`component`, `create`, `delete`, `cp`, `mv`, `reorder`, `prefab`, …) mutate
+state through Unity's own APIs (`SerializedObject` +
+`ApplyModifiedProperties`, `AssetDatabase`, `PrefabUtility`, `Undo`,
+`PrefabStageUtility`) — matching exactly what clicking in the Inspector /
+Hierarchy / Project windows would do, including proper undo registration
+and prefab override semantics.
 
 ---
 
 ## Path Grammar
 
+Paths are the universal address for everything the CLI touches. The grammar
+is built from shell-safe characters only (`A-Za-z0-9_-.+=:@%#,`, plus `/`),
+so the common cases need no quoting. The full spec lives in
+[`unity-cli-path-contract-v3.md`](unity-cli-path-contract-v3.md) — this
+section is a compact reference.
+
+### Grammar
+
 ```
-path       = segment ('/' segment)* (':' component)? ('.' property)*
-segment    = name ('[' index ']')?
-component  = typename ('[' index ']')?
-name       = identifier (any valid GameObject name)
-typename   = identifier (Unity component type name, e.g. Rigidbody)
-index      = 0-based integer (sibling order / component order)
+path        = anchor segments? component? property?
+anchor      = ''                          # bare → children of selection
+              | './'                      # selection itself (or its children with a segment)
+              | '../' ('../')*            # walk up from selection
+              | '/'                       # hierarchy root (all loaded scenes, or prefab stage)
+              | 'Assets/' | 'Packages/'   # asset database
+              | 'ProjectSettings/'        # project settings
+              | '#' instanceId            # instance ID
+segments    = segment ('/' segment)*
+segment     = name ('[' index ']')?
+component   = ':' typename ('[' index ']')?
+property    = '.' ident ('.' ident)*
 ```
+
+### Anchors
+
+| Anchor             | Resolves to                                                       |
+|--------------------|-------------------------------------------------------------------|
+| *(empty / bare)*   | Children of the current selection                                 |
+| `./`               | The selection itself                                              |
+| `..`, `../..`, …   | Walk up the selection's ancestor chain                            |
+| `/`                | Hierarchy root — every loaded scene's roots (or prefab stage root)|
+| `Assets/`          | Project asset database                                            |
+| `Packages/`        | Package assets                                                    |
+| `ProjectSettings/` | Project settings (matches the on-disk folder name)                |
+| `#<id>`            | Pinned instance ID (`EditorUtility.InstanceIDToObject`)           |
+
+### Selection is the working directory
+
+The Editor's `Selection.objects` is the CLI's "cwd". Every relative path
+(bare, `./...`, `../...`) resolves against it:
+
+- **Empty selection** → relative paths fall back to the hierarchy root.
+  `Items`, `./Items`, and `/Items` all refer to the same object.
+- **One selected object** → relative paths resolve under it.
+- **Multiple selected objects** → relative paths **fan out**, one resolution
+  per selected object. The set is the unit of work.
+
+### Fan-out is the default
+
+A path may resolve to a set. Commands process the set:
+
+```bash
+# 5 enemies selected — set fans out to all 5
+unity-cli set :Rigidbody.mass 50
+
+# 3 scenes loaded with a "Boss" root — find walks all of them
+unity-cli find / --name-prefix Boss
+```
+
+| Anchor                  | Cardinality                                      |
+|-------------------------|--------------------------------------------------|
+| `'`, `./`, `../`        | One target per selected object (fan-out)         |
+| `/`, `Assets/`, `#id`   | Absolute — single literal target set             |
+
+Pairwise commands have an explicit rule:
+
+| Command       | Multiplicity                                                              |
+|---------------|---------------------------------------------------------------------------|
+| `set <p> <v>` | `<p>` fans out, `<v>` is a single broadcast value                         |
+| `cp <s> <d>`  | `<s>` fans out; `<d>` must end with `/` (a parent) when cardinality > 1   |
+| `mv <s> <d>`  | Same rule as `cp`                                                         |
+
+Cardinality mismatch is a hard error (exit code 2) listing both expansions.
 
 ### Examples
 
+| Intent                              | Form                                                     |
+|-------------------------------------|----------------------------------------------------------|
+| Selection itself                    | `.`                                                      |
+| Property on selection               | `:Rigidbody.mass`                                        |
+| Children of selection               | *(bare)* or `./`                                         |
+| Specific child                      | `Hat` or `./Hat`                                         |
+| Sibling                             | `../Hat`                                                 |
+| Grandparent                         | `../..`                                                  |
+| Hierarchy root object               | `/World/Player`                                          |
+| Duplicate-named roots               | `/World[0]/Player`, `/World[1]/Player`                   |
+| Asset                               | `Assets/Prefabs/Enemy.prefab`                            |
+| Asset in a dotted folder            | `Assets/Stuff.v2/Hat.prefab`                             |
+| Sub-object inside an asset          | `Assets/Prefabs/Enemy.prefab//Weapon`                    |
+| Property on an asset sub-object     | `Assets/Prefabs/Enemy.prefab//Weapon:MeshRenderer.enabled` |
+| Project setting                     | `ProjectSettings/Physics.gravity`                        |
+| Pinned by ID                        | `#14352`                                                 |
+
+### Disambiguation
+
+- **Duplicate sibling names** — use `[n]` (0-based Hierarchy order):
+  `/World/Enemy[1]` is the second `Enemy` at that level.
+- **Duplicate component types** — use `[n]` (0-based Inspector order):
+  `:AudioSource[0]`.
+- **Index omitted when unique** — `:Rigidbody` works when there's exactly one.
+- **Ambiguous input fails loudly** — the error lists every candidate canonical
+  path.
+- **Tools always emit canonical (fully-indexed) paths**, so piped output never
+  introduces ambiguity.
+- **`#<id>`** — always resolves to one exact object, regardless of hierarchy
+  reorders. Useful for scripts pinning an object across multiple operations.
+
+### Sub-asset access (`//`)
+
+Asset folders may contain dots (`Assets/Stuff.v2/Hat.prefab`), so `//` is the
+unambiguous boundary between the on-disk asset path and the GameObject path
+inside it:
+
 ```
-World/Player                              GameObject
-World/Player:Transform                    Component on a GameObject
-World/Player:Transform.position           Property on a component
-World/Player:Transform.position.x         Sub-property (vector field)
-World/Enemy[1]                            Second GameObject named "Enemy"
-World/Player:AudioSource[0]               First of multiple AudioSources
-Assets/Prefabs/Enemy.prefab               Prefab asset
-Assets/Prefabs/Enemy.prefab//Weapon       Object inside the prefab asset
-#14352                                    Instance ID (unambiguous)
+Assets/Prefabs/Enemy.prefab//Weapon                          # GameObject inside the prefab
+Assets/Prefabs/Enemy.prefab//Weapon:MeshRenderer.material    # property on that sub-object
 ```
 
-### Disambiguation Rules
+### Prefab stages
 
-- **Duplicate sibling names**: Use `[n]` where `n` is sibling order (matches
-  the top-to-bottom order in the Hierarchy window).
-- **Duplicate component types**: Use `[n]` where `n` is component order
-  (matches the top-to-bottom order in the Inspector).
-- **Index omitted when unique**: `World/Player:Rigidbody` is fine if there's
-  only one Player at that level and only one Rigidbody on it.
-- **Ambiguous input fails loudly** with a list of candidate canonical paths.
-- **Tools always emit canonical (fully-indexed) paths** so piped output
-  never introduces ambiguity.
-- **Instance ID fallback**: `#<id>` (e.g. `#14352`) always resolves to one
-  exact object, regardless of hierarchy reorders. Useful for scripts that
-  pin an object across multiple operations.
+When `prefab open <asset>` has a stage open, `/` and `.` rebase under the
+stage root automatically — mirroring how the Hierarchy itself behaves. Closing
+the stage restores normal hierarchy resolution. No special syntax required.
+
+### No inline globs
+
+Globs are filter operations, not address operations. They live on `find`:
+`--name <glob>`, `--name-prefix`, `--name-suffix`, `--name-contains`,
+`--regex`. Path positionals are always literal — `unity-cli rm '/Temp_*'`
+does *not* work; compose `find | rm` (or `find | select | rm`) instead.
 
 ---
 
@@ -223,25 +296,71 @@ is kept as a literal.
 
 ## Output Formats
 
-Every tool supports the same output contract:
+Tools support a common output contract via `--format` (or its shortcuts):
 
-| Flag               | Output                                                       |
-|--------------------|--------------------------------------------------------------|
-| *(default)*        | human-readable, aligned, colored when TTY                    |
-| `--json`           | pretty JSON, `jq`-compatible                                 |
-| `--plain`          | one value / path per line, `xargs`/`grep`-compatible         |
-| `--null-delimited` | `\0`-separated, for `xargs -0` when paths contain spaces     |
+| Flag                   | Output                                                       |
+|------------------------|--------------------------------------------------------------|
+| `--plain`              | One canonical path / value per line — `xargs`/`grep`-compatible. |
+| `--json`               | Pretty JSON, `jq`-compatible.                                |
+| `--format human`       | Human-readable tree / aligned columns.                       |
+| `--format null`        | `\0`-separated, for `xargs -0` when paths contain spaces.    |
 
-Scalar `get` on a single primitive property always emits the raw value with
-no wrapper, so it composes cleanly with `bc`, `awk`, and shell arithmetic.
+### Defaults
+
+The pipe-source commands (`ls`, `find`, `get`) default to **`plain`** —
+one path-or-value per line, ready to pipe into `select`, `inspect`, or
+another tool without explicit flags:
+
+```bash
+unity-cli ls . | unity-cli select               # works as-is
+unity-cli find --name-prefix Enemy | unity-cli select
+unity-cli get :Transform.localPosition.x        # → "5.5"
+```
+
+`inspect` defaults to **`human`** because its purpose is interactive
+reading; the pretty-printed Inspector view is the point.
+
+### Multi-target output (§4.5)
+
+Multi-target reads (`get` with N selected, `find`, `ls --recursive`) print
+results in selection / hierarchy order. With `--format human` each line is
+prefixed with the canonical resolved path; `--plain` drops the prefix and
+emits values only:
+
+```bash
+$ unity-cli get :Rigidbody.mass --format human     # 3 enemies selected
+/World/Enemies/Enemy[0]:Rigidbody.mass  10
+/World/Enemies/Enemy[1]:Rigidbody.mass  10
+/World/Enemies/Enemy[2]:Rigidbody.mass  15
+
+$ unity-cli get :Rigidbody.mass                    # plain (default)
+10
+10
+15
+```
+
+### Per-target failure (§4.6)
+
+A failure on one target does not stop the others. Successful results go to
+**stdout**, per-target failures go to **stderr** with the canonical path
+prefix, and the final exit code is non-zero when *any* target failed.
+Matches GNU `cp`/`mv`/`rm` semantics on multi-source operations.
+
+```bash
+$ unity-cli get :Rigidbody.mass 1>vals 2>errs
+$ echo $?
+1
+$ cat errs
+/World/Player: No Rigidbody on '/World/Player'.
+```
 
 ---
 
 ## Command Reference
 
-Status legend:
-- ✅ **Implemented** — works today
-- 🚧 **Not implemented** — planned, this doc is the todo list
+Every section below documents a working command — there are no "planned"
+entries left in this file. See the individual `--help` output for the most
+up-to-date flags.
 
 ---
 
@@ -653,7 +772,10 @@ When `<scene-path>` is supplied, the search is restricted to descendants of
 that GameObject (the GameObject itself is not included in results — only its
 descendants). Without a positional, all scene roots are searched.
 
-- `--name <glob>` — name glob match (e.g. `"Enemy*"`).
+- `--name <glob>` — name glob match (e.g. `"Enemy*"`). Quoting required.
+- `--name-prefix <s>` — name starts with `<s>` (case-insensitive, no quoting needed).
+- `--name-suffix <s>` — name ends with `<s>`.
+- `--name-contains <s>` — name contains `<s>`.
 - `--regex <regex>` — name regex match (e.g. `"Enemy_[1-5]"`).
 - `--component <type>` — only objects that have a component of this type. May repeat.
 - `--missing <type>` — only objects that *lack* a component of this type. May repeat.
@@ -662,7 +784,12 @@ descendants). Without a positional, all scene roots are searched.
 - `--prefab <assetpath>` — only instances of this prefab asset.
 - `--has-overrides` — only prefab instances with property or structural overrides.
 - `--active` / `--inactive` — filter by active state.
-- All flags AND-combine. Multiple `--component` flags also AND-combine.
+- `--name`/`--regex` and the `--name-*` family are mutually exclusive.
+- All other filters AND-combine. Multiple `--component` flags also AND-combine.
+
+A scope path positional narrows the search to that subtree's descendants
+(the scope object itself is excluded). Bare `/` and `.` (with empty selection)
+mean "the whole hierarchy" — scene roots themselves are included.
 
 #### Asset mode (first positional starts with `Assets/` or `Packages/`)
 
@@ -1375,11 +1502,21 @@ unity-cli set "#$ID:Rigidbody.mass" 100
 unity-cli component add "#$ID" BossAI
 ```
 
-### Prefer `--plain` for pipes, `--json` for structure
+### Plain is the default for pipe-source commands
 
-`--plain` emits one path or value per line — ideal for `xargs`, `grep`, and
-`while read`. `--json` is for when you need to reach into nested structure
-with `jq`.
+`ls`, `find`, and `get` default to `--plain` — one canonical path or value
+per line, ready for `xargs`, `grep`, `while read`, or piping straight into
+`select`. No flag needed:
+
+```bash
+unity-cli ls . | unity-cli select               # children of selection → selection
+unity-cli find --name-prefix Enemy | unity-cli select
+unity-cli get :Transform.position.x             # → "5.5"
+```
+
+`inspect` defaults to human output. Pass `--json` whenever you need to
+reach into nested structure with `jq`. Pass `--format human` to get the
+old aligned tree output from `ls`/`find`/`get`.
 
 ### Null-delimited for paths with spaces
 

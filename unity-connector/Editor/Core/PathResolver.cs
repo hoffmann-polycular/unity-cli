@@ -34,23 +34,32 @@ namespace UnityCliConnector
 	/// <summary>
 	/// Resolves <see cref="ParsedPath"/> values against live Unity state.
 	///
-	/// For the first cut, only scene GameObject resolution is implemented —
-	/// enough to power <c>ls</c>. Component / property / asset-internal
-	/// resolution will be layered in for <c>inspect</c>, <c>get</c>, <c>set</c>,
-	/// and the prefab commands.
+	/// v3 path-contract semantics:
+	///   - Bare paths and "./..." / "../..." anchor at the current Editor
+	///     <see cref="Selection"/>. Multi-selection causes fan-out — every
+	///     resolution call returns a list, never a single value.
+	///   - "/..." anchors at the Hierarchy root (the union of all loaded
+	///     scene roots, or the prefab stage root when one is open).
+	///   - Asset, Packages, ProjectSettings, and InstanceId paths are
+	///     absolute and never fan out from selection.
+	///
+	/// The list-returning <see cref="ResolveTargets"/> is the canonical
+	/// entry point. The legacy single-target <see cref="ResolveGameObject"/>
+	/// is preserved for tools that genuinely require N=1 (it errors on
+	/// fan-out).
 	/// </summary>
 	public static class PathResolver
 	{
+		// ---- Hierarchy root enumeration ----
+
 		/// <summary>
-		/// Union of root GameObjects across all loaded scenes, in scene-order
-		/// then scene-root-order. Matches what the Hierarchy window shows at
-		/// the top level.
+		/// Returns the GameObjects that "/" expands to: the union of every
+		/// loaded scene's roots in scene-then-root order, OR — when a prefab
+		/// stage is open — only the prefab stage's root. Mirrors what the
+		/// Hierarchy window shows.
 		/// </summary>
 		public static List<GameObject> GetSceneRoots()
 		{
-			// When a prefab stage is open, the Hierarchy window shows ONLY the
-			// prefab's contents — regular scenes are hidden. Mirror that here so
-			// `ls` / `find` / `inspect` / etc. operate on what the user sees.
 			var prefabRoots = GetPrefabRoots();
 			if (prefabRoots.Count > 0) return prefabRoots;
 
@@ -63,19 +72,16 @@ namespace UnityCliConnector
 			}
 			return roots;
 		}
+
 		/// <summary>
-		/// Returns the root GameObject of the currently open prefab stage, if any.
+		/// Returns the root GameObject of the currently open prefab stage,
+		/// if any (otherwise an empty list).
 		/// </summary>
-		/// <returns>The root GameObject of the open prefab stage, or an empty list if no prefab stage is open.</returns>
 		public static List<GameObject> GetPrefabRoots()
 		{
-			// Check if a prefab stage is open
 			var prefabStage = PrefabStageUtility.GetCurrentPrefabStage();
 			if (prefabStage != null && prefabStage.prefabContentsRoot != null)
-			{
-				// Only the root of the open prefab is shown in the Hierarchy
 				return new List<GameObject> { prefabStage.prefabContentsRoot };
-			}
 			return new List<GameObject>();
 		}
 
@@ -92,40 +98,297 @@ namespace UnityCliConnector
 			return result;
 		}
 
+		// ---- v3 selection-aware fan-out resolver ----
+
 		/// <summary>
-		/// Resolves a parsed path to exactly one GameObject. Returns an error
-		/// with candidate canonical paths when the input is ambiguous.
+		/// Snapshot of the current Editor selection as GameObjects. Components
+		/// in the selection are coerced to their owning GameObject. Order
+		/// matches <c>Selection.objects</c> order (which matches Hierarchy
+		/// top-to-bottom). Captured up front so concurrent selection changes
+		/// during a fan-out don't shift the target set mid-run.
 		/// </summary>
-		public static Result<GameObject> ResolveGameObject(ParsedPath parsed)
+		public static List<GameObject> SelectionSnapshot()
 		{
-			if (parsed == null) return Result<GameObject>.Error("Path is null.");
+			var sel = Selection.objects;
+			var result = new List<GameObject>(sel.Length);
+			foreach (var obj in sel)
+			{
+				switch (obj)
+				{
+					case GameObject go:
+						result.Add(go);
+						break;
+					case Component c when c != null:
+						result.Add(c.gameObject);
+						break;
+				}
+			}
+			return result;
+		}
+
+		/// <summary>
+		/// Walks <paramref name="ancestors"/> levels up from <paramref name="go"/>.
+		/// Returns null if the walk runs off the top of the hierarchy.
+		/// </summary>
+		private static GameObject WalkUp(GameObject go, int ancestors)
+		{
+			if (go == null) return null;
+			var t = go.transform;
+			for (var i = 0; i < ancestors; i++)
+			{
+				if (t.parent == null) return null;
+				t = t.parent;
+			}
+			return t.gameObject;
+		}
+
+		/// <summary>
+		/// Resolves a parsed path to the full set of matching GameObjects.
+		/// Selection-anchored paths produce one entry per selected object
+		/// (after walking up <see cref="ParsedPath.ParentJumps"/> levels and
+		/// then descending through the segments). Hierarchy- and InstanceId-
+		/// anchored paths produce a single entry. Empty selection on a
+		/// selection-anchored path is reported as <see cref="ErrorKind.NotFound"/>.
+		///
+		/// Asset and ProjectSettings paths cannot resolve to GameObjects via
+		/// this entry point — use the asset/settings backends directly.
+		/// </summary>
+		public static Result<List<GameObject>> ResolveTargets(ParsedPath parsed)
+		{
+			if (parsed == null) return Result<List<GameObject>>.Error("Path is null.");
 
 			switch (parsed.Kind)
 			{
 				case PathKind.InstanceId:
-					var obj = EditorUtility.InstanceIDToObject(parsed.InstanceId);
-					if (obj == null)
-						return Result<GameObject>.Error($"No object with instance ID #{parsed.InstanceId}.", ErrorKind.NotFound);
-					if (obj is GameObject go) return Result<GameObject>.Success(go);
-					if (obj is Component c) return Result<GameObject>.Success(c.gameObject);
-					return Result<GameObject>.Error(
-						$"Instance ID #{parsed.InstanceId} resolves to a {obj.GetType().Name}, not a GameObject.");
-
+					return ResolveInstanceIdAsList(parsed);
 				case PathKind.Scene:
-					return ResolveSceneObject(parsed);
-
+					return ResolveSceneTargets(parsed);
 				case PathKind.Asset:
-					return Result<GameObject>.Error(
-						"Asset-backed GameObject resolution is not yet implemented.");
-
+					return ResolveAssetTargets(parsed);
+				case PathKind.ProjectSettings:
+					return Result<List<GameObject>>.Error(
+						"ProjectSettings paths do not resolve to GameObjects.", ErrorKind.Usage);
 				default:
-					return Result<GameObject>.Error("Unknown path kind.");
+					return Result<List<GameObject>>.Error("Unknown path kind.");
 			}
 		}
 
+		private static Result<List<GameObject>> ResolveInstanceIdAsList(ParsedPath parsed)
+		{
+			var obj = EditorUtility.InstanceIDToObject(parsed.InstanceId);
+			if (obj == null)
+				return Result<List<GameObject>>.Error($"No object with instance ID #{parsed.InstanceId}.", ErrorKind.NotFound);
+			GameObject go = null;
+			if (obj is GameObject gameObject) go = gameObject;
+			else if (obj is Component c) go = c.gameObject;
+			if (go == null)
+				return Result<List<GameObject>>.Error(
+					$"Instance ID #{parsed.InstanceId} resolves to a {obj.GetType().Name}, not a GameObject.");
+			return Result<List<GameObject>>.Success(new List<GameObject> { go });
+		}
+
+		private static Result<List<GameObject>> ResolveSceneTargets(ParsedPath parsed)
+		{
+			// Hierarchy-anchored: walk down from scene/prefab roots. Bare "/"
+			// (no segments) resolves to the scene roots themselves.
+			if (parsed.Anchor == PathAnchor.Hierarchy)
+			{
+				var hierarchyRoots = GetSceneRoots();
+				if (parsed.Segments == null || parsed.Segments.Count == 0)
+				{
+					if (hierarchyRoots.Count == 0)
+						return Result<List<GameObject>>.Error(
+							"No loaded scenes (no roots under '/').", ErrorKind.NotFound);
+					return Result<List<GameObject>>.Success(hierarchyRoots);
+				}
+				return WalkDown(hierarchyRoots, parsed.Segments);
+			}
+
+			// Selection-anchored.
+			var selection = SelectionSnapshot();
+			if (selection.Count == 0)
+			{
+				// v3 §4.4: empty selection + relative path → treat as if anchored
+				// at the Hierarchy root. "Items", "./Items" and "/Items" all mean
+				// the same thing when nothing is selected. Walking up ("..") from
+				// an empty selection has no meaning and is rejected.
+				if (parsed.ParentJumps > 0)
+					return Result<List<GameObject>>.Error(
+						$"Cannot walk {parsed.ParentJumps} parent step(s) from an empty selection. " +
+						"Hint: select a GameObject first.",
+						ErrorKind.NotFound);
+				var sceneRoots = GetSceneRoots();
+				if (parsed.Segments == null || parsed.Segments.Count == 0)
+				{
+					if (sceneRoots.Count == 0)
+						return Result<List<GameObject>>.Error(
+							"No selection and no loaded scene roots.", ErrorKind.NotFound);
+					return Result<List<GameObject>>.Success(sceneRoots);
+				}
+				return WalkDown(sceneRoots, parsed.Segments);
+			}
+
+			// Walk each selected object up by ParentJumps, dedupe, then
+			// descend through the segments under each surviving root.
+			var roots = new List<GameObject>(selection.Count);
+			var seen = new HashSet<int>();
+			foreach (var sel in selection)
+			{
+				var rooted = parsed.ParentJumps == 0 ? sel : WalkUp(sel, parsed.ParentJumps);
+				if (rooted == null) continue;
+				if (!seen.Add(rooted.GetInstanceID())) continue;
+				roots.Add(rooted);
+			}
+			if (roots.Count == 0)
+				return Result<List<GameObject>>.Error(
+					$"Walking {parsed.ParentJumps} parent step(s) from the selection runs past the Hierarchy root.",
+					ErrorKind.NotFound);
+
+			// No segments → the rooted objects ARE the targets ("." / ".." / "../..").
+			if (parsed.Segments == null || parsed.Segments.Count == 0)
+				return Result<List<GameObject>>.Success(roots);
+
+			// Segments present: the selected objects are the PARENTS.
+			// Expand each root to its immediate children — those are the candidates
+			// that WalkDown will match the first segment against.
+			var startCandidates = new List<GameObject>();
+			foreach (var root in roots)
+				startCandidates.AddRange(GetImmediateChildren(root));
+			if (startCandidates.Count == 0)
+				return Result<List<GameObject>>.Error(
+					"The selected object(s) have no children to search.", ErrorKind.NotFound);
+
+			return WalkDown(startCandidates, parsed.Segments);
+		}
+
 		/// <summary>
-		/// Builds the canonical path for a GameObject. Indices are appended
-		/// only when a name is actually duplicated at that level.
+		/// Walks a list of starting roots through the given segments, fanning
+		/// out at each level when a name has duplicate matches and no index
+		/// was provided. Returns the deduplicated leaf set, in input-root
+		/// order. An empty result is reported as <see cref="ErrorKind.NotFound"/>.
+		/// </summary>
+		private static Result<List<GameObject>> WalkDown(List<GameObject> roots, List<PathSegment> segments)
+		{
+			// First segment matches against the supplied roots.
+			var frontier = new List<GameObject>();
+			foreach (var r in roots)
+				if (r != null && r.name == segments[0].Name)
+					frontier.Add(r);
+			frontier = ApplyIndex(frontier, segments[0]);
+			if (frontier.Count == 0)
+				return Result<List<GameObject>>.Error(
+					$"No object matching '{segments[0]}' under the anchor.", ErrorKind.NotFound);
+
+			for (var i = 1; i < segments.Count; i++)
+			{
+				var seg = segments[i];
+				var next = new List<GameObject>();
+				foreach (var parent in frontier)
+				{
+					var sameName = new List<GameObject>();
+					var children = GetImmediateChildren(parent);
+					foreach (var c in children)
+						if (c != null && c.name == seg.Name)
+							sameName.Add(c);
+					next.AddRange(ApplyIndex(sameName, seg));
+				}
+				if (next.Count == 0)
+					return Result<List<GameObject>>.Error(
+						$"No descendants matching '{seg}' beneath any candidate at depth {i}.", ErrorKind.NotFound);
+				frontier = next;
+			}
+
+			// Dedup while preserving order.
+			var seen = new HashSet<int>();
+			var result = new List<GameObject>(frontier.Count);
+			foreach (var g in frontier)
+			{
+				if (g == null) continue;
+				if (seen.Add(g.GetInstanceID())) result.Add(g);
+			}
+			return Result<List<GameObject>>.Success(result);
+		}
+
+		private static List<GameObject> ApplyIndex(List<GameObject> sameName, PathSegment seg)
+		{
+			if (!seg.Index.HasValue) return sameName;
+			if (seg.Index.Value < 0 || seg.Index.Value >= sameName.Count)
+				return new List<GameObject>();
+			return new List<GameObject> { sameName[seg.Index.Value] };
+		}
+
+		private static Result<List<GameObject>> ResolveAssetTargets(ParsedPath parsed)
+		{
+			if (string.IsNullOrEmpty(parsed.AssetPath))
+				return Result<List<GameObject>>.Error("Asset path is empty.", ErrorKind.Usage);
+
+			var go = AssetDatabase.LoadAssetAtPath<GameObject>(parsed.AssetPath);
+			if (go == null)
+			{
+				// Try generic load for non-prefab assets so we can produce a
+				// clearer error than "no GameObject" when the asset exists
+				// but isn't a prefab.
+				var any = AssetDatabase.LoadMainAssetAtPath(parsed.AssetPath);
+				if (any == null)
+					return Result<List<GameObject>>.Error(
+						$"Asset not found: '{parsed.AssetPath}'.", ErrorKind.NotFound);
+				return Result<List<GameObject>>.Error(
+					$"Asset '{parsed.AssetPath}' is a {any.GetType().Name}, not a GameObject.", ErrorKind.Usage);
+			}
+
+			if (parsed.Segments == null || parsed.Segments.Count == 0)
+				return Result<List<GameObject>>.Success(new List<GameObject> { go });
+
+			// Sub-asset "//" segments walk DOWN from the prefab root, not
+			// against it: e.g. "Foo.prefab//Hat" means "the Hat child of Foo",
+			// not "an asset named Hat" — so the first segment matches against
+			// the prefab root's immediate children, just like a scene path
+			// after a hierarchy anchor.
+			var children = GetImmediateChildren(go);
+			if (children.Count == 0)
+				return Result<List<GameObject>>.Error(
+					$"Asset '{parsed.AssetPath}' has no children to descend into.",
+					ErrorKind.NotFound);
+			return WalkDown(children, parsed.Segments);
+		}
+
+		// ---- Single-target wrapper (legacy) ----
+
+		/// <summary>
+		/// Convenience wrapper around <see cref="ResolveTargets"/> that errors
+		/// on empty/multi results. Used by tools that genuinely require one
+		/// GameObject (e.g. <c>cp</c>, <c>mv</c>, <c>create</c> destination).
+		/// </summary>
+		public static Result<GameObject> ResolveGameObject(ParsedPath parsed)
+		{
+			var listRes = ResolveTargets(parsed);
+			if (!listRes.IsSuccess) return Result<GameObject>.Error(listRes.ErrorMessage, listRes.ErrorKind);
+			var list = listRes.Value;
+			if (list.Count == 0)
+				return Result<GameObject>.Error("Path resolved to zero objects.", ErrorKind.NotFound);
+			if (list.Count > 1)
+				return AmbiguityError(list, parsed);
+			return Result<GameObject>.Success(list[0]);
+		}
+
+		/// <summary>
+		/// Alias of <see cref="ResolveTargets"/> retained for tools that
+		/// previously called <c>ResolveGameObjectsAll</c> behind a <c>--all</c>
+		/// flag. Under v3, fan-out is the default — this is now identical.
+		/// </summary>
+		public static Result<List<GameObject>> ResolveGameObjectsAll(ParsedPath parsed)
+		{
+			return ResolveTargets(parsed);
+		}
+
+		// ---- canonical paths ----
+
+		/// <summary>
+		/// Builds the canonical Hierarchy path for a GameObject. Indices are
+		/// appended only when a name is actually duplicated at that level.
+		/// Always emits a leading "/" so callers can pipe the result back
+		/// into any v3-grammar tool without ambiguity (bare paths are
+		/// selection-relative under v3).
 		/// </summary>
 		public static string GetCanonicalPath(GameObject go)
 		{
@@ -137,7 +400,7 @@ namespace UnityCliConnector
 				stack.Push(BuildSegment(t.gameObject));
 				t = t.parent;
 			}
-			return string.Join("/", stack);
+			return "/" + string.Join("/", stack);
 		}
 
 		/// <summary>
@@ -149,64 +412,8 @@ namespace UnityCliConnector
 			return BuildSegment(go);
 		}
 
-		/// <summary>
-		/// Returns every GameObject matching a parsed path, walking past
-		/// ambiguity instead of erroring on it. Each segment without an
-		/// index expands to all name-matching siblings. Used by the
-		/// <c>--all</c> broadcast modes on <c>set</c>, <c>delete</c>, etc.
-		/// </summary>
-		public static Result<List<GameObject>> ResolveGameObjectsAll(ParsedPath parsed)
-		{
-			if (parsed == null) return Result<List<GameObject>>.Error("Path is null.");
+		// ---- component / property resolution (unchanged) ----
 
-			switch (parsed.Kind)
-			{
-				case PathKind.InstanceId:
-					{
-						var single = ResolveGameObject(parsed);
-						if (!single.IsSuccess) return Result<List<GameObject>>.Error(single.ErrorMessage);
-						return Result<List<GameObject>>.Success(new List<GameObject> { single.Value });
-					}
-
-				case PathKind.Scene:
-					{
-						if (parsed.Segments == null || parsed.Segments.Count == 0)
-							return Result<List<GameObject>>.Error("Scene path has no hierarchy segments.", ErrorKind.Usage);
-
-						var frontier = FilterByName(GetSceneRoots(), parsed.Segments[0]);
-						if (frontier.Count == 0)
-							return Result<List<GameObject>>.Error(
-								$"No root object matching '{parsed.Segments[0]}'.", ErrorKind.NotFound);
-
-						for (var i = 1; i < parsed.Segments.Count; i++)
-						{
-							var seg = parsed.Segments[i];
-							var next = new List<GameObject>();
-							foreach (var parent in frontier)
-								next.AddRange(FilterByName(GetImmediateChildren(parent), seg));
-							if (next.Count == 0)
-								return Result<List<GameObject>>.Error(
-									$"No descendants matching '{seg}' beneath any candidate at depth {i}.", ErrorKind.NotFound);
-							frontier = next;
-						}
-
-						return Result<List<GameObject>>.Success(frontier);
-					}
-
-				case PathKind.Asset:
-					return Result<List<GameObject>>.Error(
-						"Asset-backed GameObject resolution is not yet implemented.");
-
-				default:
-					return Result<List<GameObject>>.Error("Unknown path kind.");
-			}
-		}
-
-		/// <summary>
-		/// Resolves a <see cref="ComponentRef"/> against a GameObject.
-		/// Returns an error when the type is unknown, absent, or when the
-		/// object has multiple matches and no index was supplied.
-		/// </summary>
 		public static Result<Component> ResolveComponent(GameObject go, ComponentRef compRef)
 		{
 			if (go == null) return Result<Component>.Error("GameObject is null.");
@@ -236,11 +443,6 @@ namespace UnityCliConnector
 			return Result<Component>.Success(comps[0]);
 		}
 
-		/// <summary>
-		/// Finds a root-level serialized property by user-facing name.
-		/// Tries the raw name, <c>m_PascalCase</c>, then a case-insensitive
-		/// normalized-name scan ("m_LocalPosition" → "localPosition").
-		/// </summary>
 		public static SerializedProperty FindPropertyByUserName(SerializedObject so, string userName)
 		{
 			if (so == null || string.IsNullOrEmpty(userName)) return null;
@@ -263,10 +465,6 @@ namespace UnityCliConnector
 			return null;
 		}
 
-		/// <summary>
-		/// Finds a child property beneath <paramref name="parent"/> by user name,
-		/// using the same matching rules as <see cref="FindPropertyByUserName"/>.
-		/// </summary>
 		public static SerializedProperty FindRelativeByUserName(SerializedProperty parent, string userName)
 		{
 			if (parent == null || string.IsNullOrEmpty(userName)) return null;
@@ -290,9 +488,6 @@ namespace UnityCliConnector
 			return null;
 		}
 
-		/// <summary>
-		/// "m_LocalPosition" → "localPosition". Leaves unprefixed names alone.
-		/// </summary>
 		public static string NormalizeSerializedName(string name)
 		{
 			if (string.IsNullOrEmpty(name)) return name;
@@ -309,7 +504,6 @@ namespace UnityCliConnector
 			var normalized = NormalizeSerializedName(serializedName);
 			if (string.Equals(normalized, userName, System.StringComparison.OrdinalIgnoreCase))
 				return true;
-			// Accept collapsed displayName: "Local Position" ⇔ "localposition"
 			if (serializedName.IndexOf(' ') >= 0)
 			{
 				var collapsed = serializedName.Replace(" ", "");
@@ -321,54 +515,10 @@ namespace UnityCliConnector
 
 		// ---- internals ----
 
-		private static Result<GameObject> ResolveSceneObject(ParsedPath parsed)
-		{
-			if (parsed.Segments == null || parsed.Segments.Count == 0)
-				return Result<GameObject>.Error("Scene path has no hierarchy segments.");
-
-			// First segment matches against scene roots.
-			var candidates = FilterByName(GetSceneRoots(), parsed.Segments[0]);
-			if (candidates.Count == 0)
-				return Result<GameObject>.Error($"No root object matching '{parsed.Segments[0]}'.", ErrorKind.NotFound);
-			if (candidates.Count > 1)
-				return AmbiguityError(candidates, parsed, 0);
-
-			var current = candidates[0];
-
-			for (var i = 1; i < parsed.Segments.Count; i++)
-			{
-				var seg = parsed.Segments[i];
-				var children = GetImmediateChildren(current);
-				candidates = FilterByName(children, seg);
-				if (candidates.Count == 0)
-					return Result<GameObject>.Error(
-						$"No child matching '{seg}' under '{GetCanonicalPath(current)}'.", ErrorKind.NotFound);
-				if (candidates.Count > 1)
-					return AmbiguityError(candidates, parsed, i);
-				current = candidates[0];
-			}
-
-			return Result<GameObject>.Success(current);
-		}
-
-		private static List<GameObject> FilterByName(IEnumerable<GameObject> candidates, PathSegment seg)
-		{
-			var sameName = new List<GameObject>();
-			foreach (var c in candidates)
-				if (c != null && c.name == seg.Name)
-					sameName.Add(c);
-
-			if (!seg.Index.HasValue) return sameName;
-			if (seg.Index.Value < 0 || seg.Index.Value >= sameName.Count)
-				return new List<GameObject>();
-			return new List<GameObject> { sameName[seg.Index.Value] };
-		}
-
-		private static Result<GameObject> AmbiguityError(
-			List<GameObject> matches, ParsedPath parsed, int segmentIdx)
+		private static Result<GameObject> AmbiguityError(List<GameObject> matches, ParsedPath parsed)
 		{
 			var sb = new StringBuilder();
-			sb.Append($"Ambiguous path at segment {segmentIdx} ('{parsed.Segments[segmentIdx]}'). Candidates:");
+			sb.Append($"Path '{parsed.Raw}' resolves to {matches.Count} objects but a single target was required. Candidates:");
 			foreach (var m in matches)
 				sb.Append('\n').Append("  ").Append(GetCanonicalPath(m));
 			return Result<GameObject>.Error(sb.ToString(), ErrorKind.Ambiguous);

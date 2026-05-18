@@ -34,14 +34,15 @@ namespace UnityCliConnector.Tools
 	/// <see cref="SerializedObject"/> (so prefab overrides register and
 	/// Undo works like the Inspector does it).
 	///
-	/// The path MUST include a component and property. Value input is
-	/// permissive: plain strings ("1 2 3", "#ff0000", "MyEnum"), JSON
-	/// numbers/bools/objects (<c>--params '{"value":{"x":1,"y":2}}'</c>),
-	/// component/asset references by path or instance ID, or
-	/// <c>null</c>/<c>none</c> to clear an object reference.
+	/// v3: fan-out is the default. With a multi-target path the same value
+	/// is broadcast to every resolved object, all writes share one Undo
+	/// group, and per-target failures are reported but do not stop other
+	/// writes. Value input is permissive: plain strings ("1 2 3", "#ff0000",
+	/// "MyEnum"), JSON numbers/bools/objects (<c>--params '{"value":{"x":1,"y":2}}'</c>),
+	/// component/asset references by path or instance ID, or <c>null</c>/<c>none</c>
+	/// to clear an object reference.
 	///
-	/// <c>--all</c> broadcasts the write to every GameObject the path
-	/// matches when ambiguous siblings would otherwise be a hard error.
+	/// Also supports <c>ProjectSettings/&lt;Group&gt;.&lt;property&gt;</c>.
 	/// </summary>
 	[UnityCliTool(Name = "set",
 		Description = "Write a single property value. Registers Undo and dirties the target.")]
@@ -49,16 +50,13 @@ namespace UnityCliConnector.Tools
 	{
 		public class Parameters
 		{
-			[ToolParameter("Path to a property, e.g. Player:Transform.position.x.", Required = true)]
+			[ToolParameter("Path to a property, e.g. ':Transform.position.x' (selection-relative) or '/World/Player:Rigidbody.mass'.", Required = true)]
 			public string Path { get; set; }
 
 			[ToolParameter("Value to assign. Scalars, \"x y z\" / \"x,y,z\" vectors, " +
 				"\"#rrggbb\" colors, enum names, object refs (\"Assets/...\" / \"#id\" / scene path), " +
 				"or null/none to clear.", Required = true)]
 			public string Value { get; set; }
-
-			[ToolParameter("Broadcast to all GameObjects matching the path (no ambiguity error).")]
-			public bool All { get; set; }
 		}
 
 		public static object HandleCommand(JObject @params)
@@ -75,8 +73,6 @@ namespace UnityCliConnector.Tools
 			if ((rawValue == null || rawValue.Type == JTokenType.Null) && args != null && args.Count > 1)
 				rawValue = args[1];
 
-			var broadcast = p.GetBool("all");
-
 			if (string.IsNullOrWhiteSpace(path))
 				return new ErrorResponse("set requires a path with :Component.property.");
 			if (rawValue == null)
@@ -86,29 +82,28 @@ namespace UnityCliConnector.Tools
 			if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
 			var parsed = parseResult.Value;
 
+			// ProjectSettings backend.
+			if (parsed.Kind == PathKind.ProjectSettings)
+				return SetProjectSettings(parsed, rawValue);
+
 			if (!parsed.Component.IsPresent)
 				return new ErrorResponse("set requires a component — add ':TypeName' to the path.");
 			if (parsed.Properties == null || parsed.Properties.Count == 0)
 				return new ErrorResponse("set requires a property — add '.propertyName' to the path.");
 
-			// Single-target path (default) keeps the strict ambiguity check;
-			// --all expands it to every match.
-			List<GameObject> targets;
-			if (broadcast)
-			{
-				var allRes = PathResolver.ResolveGameObjectsAll(parsed);
-				if (!allRes.IsSuccess) return ErrorResponse.FromResult(allRes);
-				targets = allRes.Value;
-			}
-			else
-			{
-				var goRes = PathResolver.ResolveGameObject(parsed);
-				if (!goRes.IsSuccess) return ErrorResponse.FromResult(goRes);
-				targets = new List<GameObject> { goRes.Value };
-			}
+			// v3: fan out across selection (or resolve single absolute target).
+			var targetsRes = PathResolver.ResolveTargets(parsed);
+			if (!targetsRes.IsSuccess) return ErrorResponse.FromResult(targetsRes);
+			var targets = targetsRes.Value;
 
 			var applied = new List<object>();
 			var errors = new List<string>();
+
+			// Wrap the entire fan-out in a single Undo group so one Ctrl-Z
+			// reverses the whole operation.
+			var undoGroup = Undo.GetCurrentGroup();
+			Undo.IncrementCurrentGroup();
+			Undo.SetCurrentGroupName($"set {parsed.Component.TypeName}.{Join(parsed.Properties, parsed.Properties.Count)}");
 
 			foreach (var go in targets)
 			{
@@ -163,14 +158,16 @@ namespace UnityCliConnector.Tools
 				});
 			}
 
+			Undo.CollapseUndoOperations(undoGroup);
+
 			if (applied.Count == 0)
 				return new ErrorResponse(
 					errors.Count == 1 ? errors[0] : $"set failed for all {targets.Count} target(s):\n  " + string.Join("\n  ", errors));
 
-			// Single-target keeps the old simple shape; broadcast wraps the list
-			// so callers can iterate. Errors-after-some-success surface as a
-			// success with a partial-failures message.
-			if (!broadcast && applied.Count == 1)
+			// Single-target keeps the simple shape; multi-target wraps the
+			// list so callers can iterate. Mixed success/failure surfaces as
+			// SuccessResponse with a partial-failure message.
+			if (applied.Count == 1 && targets.Count == 1)
 			{
 				var single = (Dictionary<string, object>)applied[0];
 				return new SuccessResponse(
@@ -187,6 +184,57 @@ namespace UnityCliConnector.Tools
 				["applied"] = applied,
 				["errors"] = errors,
 			});
+		}
+
+		private static object SetProjectSettings(ParsedPath parsed, JToken rawValue)
+		{
+			if (!parsed.Component.IsPresent || parsed.Component.TypeName != PathParser.SettingsRootSentinel
+				|| parsed.Properties == null || parsed.Properties.Count == 0)
+				return new ErrorResponse(
+					"set requires a property under a ProjectSettings group, e.g. 'ProjectSettings/Physics.gravity'.",
+					ErrorKind.Usage);
+
+			var soRes = ProjectSettingsResolver.LoadGroup(parsed.SettingsGroup);
+			if (!soRes.IsSuccess) return ErrorResponse.FromResult(soRes);
+			using var so = soRes.Value;
+
+			var root = PathResolver.FindPropertyByUserName(so, parsed.Properties[0]);
+			if (root == null)
+				return new ErrorResponse(
+					$"No property '{parsed.Properties[0]}' on ProjectSettings/{parsed.SettingsGroup}.",
+					ErrorKind.NotFound);
+			var current = root;
+			for (var i = 1; i < parsed.Properties.Count; i++)
+			{
+				var next = PathResolver.FindRelativeByUserName(current, parsed.Properties[i]);
+				if (next == null)
+					return new ErrorResponse(
+						$"No sub-property '{parsed.Properties[i]}' under '{Join(parsed.Properties, i)}'.",
+						ErrorKind.NotFound);
+				current = next;
+			}
+
+			var oldValue = SerializedPropertyReader.Read(current);
+			Undo.RecordObject(so.targetObject, $"set ProjectSettings/{parsed.SettingsGroup}.{Join(parsed.Properties, parsed.Properties.Count)}");
+
+			var writeResult = SerializedPropertyWriter.Write(current, rawValue);
+			if (!writeResult.IsSuccess) return ErrorResponse.FromResult(writeResult);
+
+			so.ApplyModifiedProperties();
+			EditorUtility.SetDirty(so.targetObject);
+			AssetDatabase.SaveAssets();
+
+			var newValue = SerializedPropertyReader.Read(current);
+			return new SuccessResponse(
+				$"{ProjectSettingsResolver.CanonicalPath(parsed.SettingsGroup)}.{Join(parsed.Properties, parsed.Properties.Count)} = {Describe(newValue)}",
+				new Dictionary<string, object>
+				{
+					["path"] = ProjectSettingsResolver.CanonicalPath(parsed.SettingsGroup),
+					["property"] = Join(parsed.Properties, parsed.Properties.Count),
+					["type"] = current.propertyType.ToString(),
+					["oldValue"] = oldValue,
+					["newValue"] = newValue,
+				});
 		}
 
 		private static string Join(List<string> parts, int count)

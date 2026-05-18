@@ -93,17 +93,77 @@ namespace UnityCliConnector.Tools
 			var parseResult = PathParser.Parse(path);
 			if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
 
-			var goResult = PathResolver.ResolveGameObject(parseResult.Value);
-			if (!goResult.IsSuccess) return ErrorResponse.FromResult(goResult);
-			var go = goResult.Value;
+			// v3: paths fan out across the selection. `list` against a fan-out
+			// emits one block per target. `add`/`remove` apply to each, all
+			// wrapped in one Undo group.
+			var targetsRes = PathResolver.ResolveTargets(parseResult.Value);
+			if (!targetsRes.IsSuccess) return ErrorResponse.FromResult(targetsRes);
+			var targets = targetsRes.Value;
 
-			return action switch
+			if (targets.Count == 1)
 			{
-				"list" => DoList(go, format),
-				"add" => DoAdd(go, typeArg, format),
-				"remove" or "rm" => DoRemove(go, typeArg, format),
-				_ => new ErrorResponse($"Unknown component action '{action}'. Use: list, add, remove."),
-			};
+				return action switch
+				{
+					"list" => DoList(targets[0], format),
+					"add" => DoAdd(targets[0], typeArg, format),
+					"remove" or "rm" => DoRemove(targets[0], typeArg, format),
+					_ => new ErrorResponse($"Unknown component action '{action}'. Use: list, add, remove."),
+				};
+			}
+
+			// Fan-out path.
+			if (action == "list")
+			{
+				var blocks = new List<object>(targets.Count);
+				foreach (var go in targets)
+				{
+					var single = DoList(go, format);
+					blocks.Add(single is SuccessResponse sr ? sr.data : single);
+				}
+				return new SuccessResponse("", new Dictionary<string, object>
+				{
+					["count"] = targets.Count,
+					["targets"] = blocks,
+				});
+			}
+
+			if (action != "add" && action != "remove" && action != "rm")
+				return new ErrorResponse($"Unknown component action '{action}'. Use: list, add, remove.");
+
+			var undoGroup = Undo.GetCurrentGroup();
+			Undo.IncrementCurrentGroup();
+			Undo.SetCurrentGroupName($"component {action}");
+
+			var applied = new List<object>();
+			var errors = new List<string>();
+			foreach (var go in targets)
+			{
+				object single = action == "add"
+					? DoAdd(go, typeArg, format)
+					: DoRemove(go, typeArg, format);
+				switch (single)
+				{
+					case SuccessResponse sr:
+						applied.Add(sr.data);
+						break;
+					case ErrorResponse er:
+						errors.Add($"{PathResolver.GetCanonicalPath(go)}: {er.message}");
+						break;
+				}
+			}
+			Undo.CollapseUndoOperations(undoGroup);
+
+			if (applied.Count == 0)
+				return new ErrorResponse(string.Join("\n", errors));
+
+			var msg = errors.Count == 0
+				? $"component {action} applied to {applied.Count} object(s)."
+				: $"component {action} applied to {applied.Count} object(s); {errors.Count} failed.";
+			return new SuccessResponse(msg, new Dictionary<string, object>
+			{
+				["applied"] = applied,
+				["errors"] = errors,
+			});
 		}
 
 		// ---- list ----

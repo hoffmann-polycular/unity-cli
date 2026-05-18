@@ -10,6 +10,19 @@ namespace UnityCliConnector
         public bool success = true;
         public string message;
         public object data;
+        /// <summary>
+        /// True when this is a multi-target operation in which one or more
+        /// targets failed but others succeeded. The CLI prints stdout data
+        /// as normal and routes <see cref="stderr"/> to stderr, exiting with
+        /// a non-zero status code (per spec §4.6 — "worst of per-target codes").
+        /// </summary>
+        public bool partialFailure;
+        /// <summary>
+        /// Error lines for failed targets in a partial-failure response.
+        /// Written to stderr by the CLI. One target per line, prefixed with
+        /// the canonical path so users can see which targets failed.
+        /// </summary>
+        public string stderr;
 
         public SuccessResponse(string message, object data = null)
         {

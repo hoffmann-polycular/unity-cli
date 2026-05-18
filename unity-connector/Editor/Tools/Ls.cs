@@ -29,187 +29,262 @@ using UnityEngine;
 
 namespace UnityCliConnector.Tools
 {
-    /// <summary>
-    /// Lists scene hierarchy: scene roots when given no path, or the children
-    /// of a specific GameObject when given a path. Renders as human-readable
-    /// tree, structured JSON, plain (one path per line), or null-delimited.
-    /// </summary>
-    [UnityCliTool(Name = "ls",
-        Description = "List scene hierarchy. No path lists scene roots; with a path lists children.")]
-    public static class Ls
-    {
-        public class Parameters
-        {
-            [ToolParameter("GameObject path to list children of. Omit for scene roots.")]
-            public string Path { get; set; }
+	/// <summary>
+	/// List the children of a GameObject. Path resolution follows the v3
+	/// contract: bare paths and "./..." anchor at the current selection,
+	/// "/..." at the Hierarchy root, "../..." walks up. Fan-out across
+	/// multiple selected objects is the default — output is one block
+	/// per target, in selection order.
+	///
+	/// With no positional, lists scene roots (matches what the Hierarchy
+	/// window shows with nothing selected).
+	/// </summary>
+	[UnityCliTool(Name = "ls",
+		Description = "List Hierarchy children. No path lists scene roots; '.' lists selection's children.")]
+	public static class Ls
+	{
+		public class Parameters
+		{
+			[ToolParameter("GameObject path. Bare/'./' = selection-relative; '/' = Hierarchy root. Omit for scene roots.")]
+			public string Path { get; set; }
 
-            [ToolParameter("Recurse into descendants (-r / --recursive on the CLI).")]
-            public bool Recursive { get; set; }
+			[ToolParameter("Recurse into descendants (-R / --recursive on the CLI).")]
+			public bool Recursive { get; set; }
 
-            [ToolParameter("Include each object's component type list.")]
-            public bool Components { get; set; }
+			[ToolParameter("Include each object's component type list.")]
+			public bool Components { get; set; }
 
-            [ToolParameter("Output format: human (default), json, plain, null.")]
-            public string Format { get; set; }
-        }
+			[ToolParameter("Output format: human (default), json, plain, null.")]
+			public string Format { get; set; }
+		}
 
-        public static object HandleCommand(JObject @params)
-        {
-            var p = new ToolParams(@params);
-            var path = p.Get("path")
-                       ?? (p.GetRaw("args") as JArray)?[0]?.ToString();
-            var recursive = p.GetBool("recursive");
-            var includeComponents = p.GetBool("components");
-            var format = (p.Get("format") ?? "human").ToLowerInvariant();
+		public static object HandleCommand(JObject @params)
+		{
+			var p = new ToolParams(@params);
+			var path = p.Get("path")
+					   ?? (p.GetRaw("args") as JArray)?[0]?.ToString();
+			var recursive = p.GetBool("recursive");
+			var includeComponents = p.GetBool("components");
+			var format = (p.Get("format") ?? "plain").ToLowerInvariant();
 
-            List<GameObject> children;
-            string rootPath;
+			List<TargetListing> targets;
+			if (string.IsNullOrWhiteSpace(path))
+			{
+				// No path → children of the current selection (spec §2.1:
+				// "selection is the cwd"). Falls back to scene roots when
+				// nothing is selected (spec §4.4).
+				var sel = PathResolver.SelectionSnapshot();
+				if (sel.Count == 0)
+				{
+					targets = new List<TargetListing>
+					{
+						new TargetListing
+						{
+							RootPath = "",
+							Children = PathResolver.GetSceneRoots(),
+						},
+					};
+				}
+				else
+				{
+					targets = new List<TargetListing>(sel.Count);
+					foreach (var go in sel)
+					{
+						targets.Add(new TargetListing
+						{
+							RootPath = PathResolver.GetCanonicalPath(go),
+							Children = PathResolver.GetImmediateChildren(go),
+						});
+					}
+				}
+			}
+			else
+			{
+				var parseResult = PathParser.Parse(path);
+				if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
+				if (parseResult.Value.Kind == PathKind.ProjectSettings)
+					return new ErrorResponse(
+						"ls does not list ProjectSettings groups; use 'inspect ProjectSettings/' for that.",
+						ErrorKind.Usage);
 
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                children = PathResolver.GetSceneRoots();
-                rootPath = "";
-            }
-            else
-            {
-                var parseResult = PathParser.Parse(path);
-                if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
+				var resolveResult = PathResolver.ResolveTargets(parseResult.Value);
+				if (!resolveResult.IsSuccess) return ErrorResponse.FromResult(resolveResult);
 
-                var resolveResult = PathResolver.ResolveGameObject(parseResult.Value);
-                if (!resolveResult.IsSuccess) return ErrorResponse.FromResult(resolveResult);
+				targets = new List<TargetListing>(resolveResult.Value.Count);
+				foreach (var t in resolveResult.Value)
+				{
+					targets.Add(new TargetListing
+					{
+						RootPath = PathResolver.GetCanonicalPath(t),
+						Children = PathResolver.GetImmediateChildren(t),
+					});
+				}
+			}
 
-                var parent = resolveResult.Value;
-                children = PathResolver.GetImmediateChildren(parent);
-                rootPath = PathResolver.GetCanonicalPath(parent);
-            }
+			switch (format)
+			{
+				case "json":
+					return RenderJson(targets, recursive, includeComponents);
+				case "plain":
+					return new SuccessResponse("", RenderDelimited(targets, recursive, "\n"));
+				case "null":
+				case "null-delimited":
+				case "null_delimited":
+					return new SuccessResponse("", RenderDelimited(targets, recursive, "\0"));
+				case "human":
+				case "":
+					return new SuccessResponse("", RenderHuman(targets, recursive, includeComponents));
+				default:
+					return new ErrorResponse($"Unknown format '{format}'. Use: human, json, plain, null.");
+			}
+		}
 
-            switch (format)
-            {
-                case "json":
-                    return new SuccessResponse("", new
-                    {
-                        path = rootPath,
-                        children = BuildJsonChildren(children, recursive, includeComponents),
-                    });
-                case "plain":
-                    return new SuccessResponse("", RenderDelimited(children, recursive, "\n"));
-                case "null":
-                case "null-delimited":
-                case "null_delimited":
-                    return new SuccessResponse("", RenderDelimited(children, recursive, "\0"));
-                case "human":
-                case "":
-                    return new SuccessResponse("", RenderHuman(rootPath, children, recursive, includeComponents));
-                default:
-                    return new ErrorResponse($"Unknown format '{format}'. Use: human, json, plain, null.");
-            }
-        }
+		// ---- Per-target listing struct ----
 
-        // ---- JSON rendering ----
+		private struct TargetListing
+		{
+			public string RootPath;
+			public List<GameObject> Children;
+		}
 
-        private static List<object> BuildJsonChildren(
-            List<GameObject> children, bool recursive, bool includeComponents)
-        {
-            var list = new List<object>(children.Count);
-            foreach (var c in children)
-            {
-                if (c == null) continue;
-                var entry = new Dictionary<string, object>
-                {
-                    ["name"] = c.name,
-                    ["path"] = PathResolver.GetCanonicalPath(c),
-                    ["active"] = c.activeInHierarchy,
-                };
-                if (includeComponents)
-                    entry["components"] = ComponentNames(c);
-                if (recursive)
-                {
-                    var kids = PathResolver.GetImmediateChildren(c);
-                    if (kids.Count > 0)
-                        entry["children"] = BuildJsonChildren(kids, true, includeComponents);
-                }
-                list.Add(entry);
-            }
-            return list;
-        }
+		// ---- JSON rendering ----
 
-        // ---- Plain / null-delimited rendering ----
+		private static SuccessResponse RenderJson(
+			List<TargetListing> targets, bool recursive, bool includeComponents)
+		{
+			if (targets.Count == 1)
+			{
+				return new SuccessResponse("", new Dictionary<string, object>
+				{
+					["path"] = targets[0].RootPath,
+					["children"] = BuildJsonChildren(targets[0].Children, recursive, includeComponents),
+				});
+			}
+			var blocks = new List<object>(targets.Count);
+			foreach (var t in targets)
+			{
+				blocks.Add(new Dictionary<string, object>
+				{
+					["path"] = t.RootPath,
+					["children"] = BuildJsonChildren(t.Children, recursive, includeComponents),
+				});
+			}
+			return new SuccessResponse("", new Dictionary<string, object>
+			{
+				["count"] = targets.Count,
+				["targets"] = blocks,
+			});
+		}
 
-        private static string RenderDelimited(List<GameObject> children, bool recursive, string sep)
-        {
-            var sb = new StringBuilder();
-            var first = true;
-            AppendDelimited(children, recursive, sb, sep, ref first);
-            return sb.ToString();
-        }
+		private static List<object> BuildJsonChildren(
+			List<GameObject> children, bool recursive, bool includeComponents)
+		{
+			var list = new List<object>(children.Count);
+			foreach (var c in children)
+			{
+				if (c == null) continue;
+				var entry = new Dictionary<string, object>
+				{
+					["name"] = c.name,
+					["path"] = PathResolver.GetCanonicalPath(c),
+					["active"] = c.activeInHierarchy,
+				};
+				if (includeComponents)
+					entry["components"] = ComponentNames(c);
+				if (recursive)
+				{
+					var kids = PathResolver.GetImmediateChildren(c);
+					if (kids.Count > 0)
+						entry["children"] = BuildJsonChildren(kids, true, includeComponents);
+				}
+				list.Add(entry);
+			}
+			return list;
+		}
 
-        private static void AppendDelimited(
-            List<GameObject> children, bool recursive, StringBuilder sb, string sep, ref bool first)
-        {
-            foreach (var c in children)
-            {
-                if (c == null) continue;
-                if (!first) sb.Append(sep);
-                first = false;
-                sb.Append(PathResolver.GetCanonicalPath(c));
-                if (recursive)
-                {
-                    var kids = PathResolver.GetImmediateChildren(c);
-                    if (kids.Count > 0)
-                        AppendDelimited(kids, true, sb, sep, ref first);
-                }
-            }
-        }
+		// ---- Plain / null-delimited rendering ----
 
-        // ---- Human rendering ----
+		private static string RenderDelimited(List<TargetListing> targets, bool recursive, string sep)
+		{
+			var sb = new StringBuilder();
+			var first = true;
+			foreach (var t in targets)
+				AppendDelimited(t.Children, recursive, sb, sep, ref first);
+			return sb.ToString();
+		}
 
-        private static string RenderHuman(
-            string rootPath, List<GameObject> children, bool recursive, bool includeComponents)
-        {
-            var sb = new StringBuilder();
-            if (!string.IsNullOrEmpty(rootPath))
-                sb.Append(rootPath).Append('\n');
+		private static void AppendDelimited(
+			List<GameObject> children, bool recursive, StringBuilder sb, string sep, ref bool first)
+		{
+			foreach (var c in children)
+			{
+				if (c == null) continue;
+				if (!first) sb.Append(sep);
+				first = false;
+				sb.Append(PathResolver.GetCanonicalPath(c));
+				if (recursive)
+				{
+					var kids = PathResolver.GetImmediateChildren(c);
+					if (kids.Count > 0)
+						AppendDelimited(kids, true, sb, sep, ref first);
+				}
+			}
+		}
 
-            if (children.Count == 0)
-            {
-                sb.Append(string.IsNullOrEmpty(rootPath) ? "(empty scene)" : "  (no children)");
-                return sb.ToString();
-            }
+		// ---- Human rendering ----
 
-            AppendHuman(children, recursive, includeComponents, sb, depth: 0);
-            return sb.ToString().TrimEnd('\n');
-        }
+		private static string RenderHuman(
+			List<TargetListing> targets, bool recursive, bool includeComponents)
+		{
+			var sb = new StringBuilder();
+			for (var i = 0; i < targets.Count; i++)
+			{
+				if (i > 0) sb.Append('\n');
+				var t = targets[i];
+				if (!string.IsNullOrEmpty(t.RootPath))
+					sb.Append(t.RootPath).Append('\n');
 
-        private static void AppendHuman(
-            List<GameObject> children, bool recursive, bool includeComponents,
-            StringBuilder sb, int depth)
-        {
-            foreach (var c in children)
-            {
-                if (c == null) continue;
-                sb.Append(' ', depth * 2);
-                sb.Append(PathResolver.GetSegmentName(c));
-                if (!c.activeInHierarchy) sb.Append("  (inactive)");
-                if (includeComponents)
-                    sb.Append("  [").Append(string.Join(", ", ComponentNames(c))).Append(']');
-                sb.Append('\n');
+				if (t.Children == null || t.Children.Count == 0)
+				{
+					sb.Append(string.IsNullOrEmpty(t.RootPath) ? "(empty hierarchy)" : "  (no children)");
+					sb.Append('\n');
+					continue;
+				}
+				AppendHuman(t.Children, recursive, includeComponents, sb, depth: string.IsNullOrEmpty(t.RootPath) ? 0 : 1);
+			}
+			return sb.ToString().TrimEnd('\n');
+		}
 
-                if (recursive)
-                {
-                    var kids = PathResolver.GetImmediateChildren(c);
-                    if (kids.Count > 0)
-                        AppendHuman(kids, true, includeComponents, sb, depth + 1);
-                }
-            }
-        }
+		private static void AppendHuman(
+			List<GameObject> children, bool recursive, bool includeComponents,
+			StringBuilder sb, int depth)
+		{
+			foreach (var c in children)
+			{
+				if (c == null) continue;
+				sb.Append(' ', depth * 2);
+				sb.Append(PathResolver.GetSegmentName(c));
+				if (!c.activeInHierarchy) sb.Append("  (inactive)");
+				if (includeComponents)
+					sb.Append("  [").Append(string.Join(", ", ComponentNames(c))).Append(']');
+				sb.Append('\n');
 
-        private static List<string> ComponentNames(GameObject go)
-        {
-            var comps = go.GetComponents<Component>();
-            var names = new List<string>(comps.Length);
-            foreach (var comp in comps)
-                names.Add(comp == null ? "<missing script>" : comp.GetType().Name);
-            return names;
-        }
-    }
+				if (recursive)
+				{
+					var kids = PathResolver.GetImmediateChildren(c);
+					if (kids.Count > 0)
+						AppendHuman(kids, true, includeComponents, sb, depth + 1);
+				}
+			}
+		}
+
+		private static List<string> ComponentNames(GameObject go)
+		{
+			var comps = go.GetComponents<Component>();
+			var names = new List<string>(comps.Length);
+			foreach (var comp in comps)
+				names.Add(comp == null ? "<missing script>" : comp.GetType().Name);
+			return names;
+		}
+	}
 }

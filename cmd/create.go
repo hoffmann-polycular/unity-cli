@@ -33,9 +33,10 @@ import (
 // createCmd spawns GameObjects (empty/primitive) or prefab instances.
 //
 // Forms:
-//   create Empty <parentpath>/<name>
-//   create <primitive> <parentpath>/<name>
-//   create --prefab <assetpath> <parentpath>/<name>
+//
+//	create Empty <parentpath>/<name>
+//	create <primitive> <parentpath>/<name>
+//	create --prefab <assetpath> <parentpath>/<name>
 //
 // Type resolution (Empty, Cube, Sphere, Capsule, Cylinder, Plane, Quad)
 // is handled by the C# side to avoid duplication.
@@ -55,7 +56,7 @@ func createCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 		pathArg = args[2]
 	} else {
 		if len(args) == 1 {
-			
+
 			pathArg = args[0]
 		} else {
 			typeArg = args[0]

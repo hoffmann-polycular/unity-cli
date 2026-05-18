@@ -35,11 +35,12 @@ import (
 // for collision handling.
 //
 // Forms:
-//   cp <src> <parent>/<name>           copy under <parent>, named <name>
-//   cp <src> <parent>/                 copy under <parent>, keep source name
-//   cp <src> <dst> --depth 0           shallow copy: object only, no children
-//   cp <src> <dst> --auto-suffix       on collision, append " (1)", " (2)", …
-//   cp <src> <dst> --auto-suffix _{n}  custom suffix format
+//
+//	cp <src> <parent>/<name>           copy under <parent>, named <name>
+//	cp <src> <parent>/                 copy under <parent>, keep source name
+//	cp <src> <dst> --depth 0           shallow copy: object only, no children
+//	cp <src> <dst> --auto-suffix       on collision, append " (1)", " (2)", …
+//	cp <src> <dst> --auto-suffix _{n}  custom suffix format
 func cpCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	if len(args) < 2 {
 		return nil, fmt.Errorf("usage: unity-cli cp <src> <dst> [--depth N] [--auto-suffix [format]]\n  <dst> is 'parent/name' or 'parent/' (keep source name)")

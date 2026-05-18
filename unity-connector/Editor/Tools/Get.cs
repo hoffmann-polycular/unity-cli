@@ -64,7 +64,7 @@ namespace UnityCliConnector.Tools
 			var path = p.Get("path")
 					   ?? (p.GetRaw("args") as JArray)?[0]?.ToString();
 			var sourceMode = p.GetBool("source");
-			var format = (p.Get("format") ?? "human").ToLowerInvariant();
+			var format = (p.Get("format") ?? "plain").ToLowerInvariant();
 
 			if (string.IsNullOrWhiteSpace(path))
 				return new ErrorResponse("get requires a path with :Component.property.");
@@ -73,15 +73,94 @@ namespace UnityCliConnector.Tools
 			if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
 			var parsed = parseResult.Value;
 
+			// ProjectSettings handling: read serialized property off the settings group.
+			if (parsed.Kind == PathKind.ProjectSettings)
+				return GetProjectSettings(parsed, format);
+
 			if (!parsed.Component.IsPresent)
 				return new ErrorResponse("get requires a component — add ':TypeName' to the path.");
 			if (parsed.Properties == null || parsed.Properties.Count == 0)
 				return new ErrorResponse("get requires a property — add '.propertyName' to the path.");
 
-			var goResult = PathResolver.ResolveGameObject(parsed);
-			if (!goResult.IsSuccess) return ErrorResponse.FromResult(goResult);
+			// v3: fan out across selection. Single-target preserves the legacy
+			// scalar output; multi-target emits one prefixed line per result.
+			var targetsRes = PathResolver.ResolveTargets(parsed);
+			if (!targetsRes.IsSuccess) return ErrorResponse.FromResult(targetsRes);
+			var targets = targetsRes.Value;
 
-			var compResult = PathResolver.ResolveComponent(goResult.Value, parsed.Component);
+			if (targets.Count == 1)
+				return GetOne(targets[0], parsed, sourceMode, format, prefixWithPath: false);
+
+			// Fan-out: per-target results. Per §4.6 successes go to stdout,
+			// failures to stderr, and any failure makes the exit code non-zero.
+			var entries = new List<object>(targets.Count);
+			var successLines = new List<string>(targets.Count);
+			var errorLines = new List<string>(targets.Count);
+			var successCount = 0;
+			foreach (var go in targets)
+			{
+				var single = GetOne(go, parsed, sourceMode, format: "json", prefixWithPath: false);
+				if (single is SuccessResponse sr && sr.data is Dictionary<string, object> dict)
+				{
+					entries.Add(dict);
+					successCount++;
+					if (format != "json")
+					{
+						var rendered = FormatPipeFriendly(dict.TryGetValue("value", out var vv) ? vv : null);
+						if (format == "plain")
+						{
+							// --plain: value only, no path prefix (§4.5).
+							successLines.Add(rendered);
+						}
+						else
+						{
+							var canon = dict.TryGetValue("path", out var pp) ? pp?.ToString() : PathResolver.GetCanonicalPath(go);
+							var compName = dict.TryGetValue("component", out var cc) ? cc?.ToString() : "";
+							var propName = dict.TryGetValue("property", out var pn) ? pn?.ToString() : "";
+							successLines.Add($"{canon}:{compName}.{propName}  {rendered}");
+						}
+					}
+				}
+				else if (single is ErrorResponse er)
+				{
+					entries.Add(new Dictionary<string, object>
+					{
+						["path"] = PathResolver.GetCanonicalPath(go),
+						["ok"] = false,
+						["error"] = er.message,
+					});
+					if (format != "json")
+						errorLines.Add($"{PathResolver.GetCanonicalPath(go)}: {er.message}");
+				}
+			}
+
+			if (format == "json")
+			{
+				var jsonResp = new SuccessResponse("", new Dictionary<string, object>
+				{
+					["count"] = targets.Count,
+					["results"] = entries,
+				});
+				if (successCount < targets.Count)
+				{
+					jsonResp.partialFailure = true;
+					jsonResp.stderr = string.Join("\n", errorLines);
+				}
+				return jsonResp;
+			}
+
+			var resp = new SuccessResponse("", string.Join("\n", successLines));
+			if (errorLines.Count > 0)
+			{
+				resp.partialFailure = true;
+				resp.stderr = string.Join("\n", errorLines);
+			}
+			return resp;
+		}
+
+		private static object GetOne(GameObject go, ParsedPath parsed, bool sourceMode, string format, bool prefixWithPath)
+		{
+			var compResult = PathResolver.ResolveComponent(go, parsed.Component);
 			if (!compResult.IsSuccess) return ErrorResponse.FromResult(compResult);
 			var component = compResult.Value;
 
@@ -93,7 +172,7 @@ namespace UnityCliConnector.Tools
 				var src = PrefabUtility.GetCorrespondingObjectFromSource(component);
 				if (src == null)
 					return new ErrorResponse(
-						$"--source requires a prefab-instance target; '{PathResolver.GetCanonicalPath(goResult.Value)}' is not connected to a prefab.");
+						$"--source requires a prefab-instance target; '{PathResolver.GetCanonicalPath(go)}' is not connected to a prefab.");
 				readTarget = src;
 			}
 
@@ -119,7 +198,7 @@ namespace UnityCliConnector.Tools
 			{
 				return new SuccessResponse("", new Dictionary<string, object>
 				{
-					["path"] = PathResolver.GetCanonicalPath(goResult.Value),
+					["path"] = PathResolver.GetCanonicalPath(go),
 					["component"] = component.GetType().Name,
 					["property"] = JoinProps(parsed.Properties, parsed.Properties.Count),
 					["type"] = current.propertyType.ToString(),
@@ -129,6 +208,49 @@ namespace UnityCliConnector.Tools
 				});
 			}
 
+			return new SuccessResponse("", FormatPipeFriendly(value));
+		}
+
+		private static object GetProjectSettings(ParsedPath parsed, string format)
+		{
+			if (!parsed.Component.IsPresent || parsed.Component.TypeName != PathParser.SettingsRootSentinel
+				|| parsed.Properties == null || parsed.Properties.Count == 0)
+				return new ErrorResponse(
+					"get requires a property under a ProjectSettings group, e.g. 'ProjectSettings/Physics.gravity'.",
+					ErrorKind.Usage);
+
+			var soRes = ProjectSettingsResolver.LoadGroup(parsed.SettingsGroup);
+			if (!soRes.IsSuccess) return ErrorResponse.FromResult(soRes);
+			using var so = soRes.Value;
+
+			var root = PathResolver.FindPropertyByUserName(so, parsed.Properties[0]);
+			if (root == null)
+				return new ErrorResponse(
+					$"No property '{parsed.Properties[0]}' on ProjectSettings/{parsed.SettingsGroup}.",
+					ErrorKind.NotFound);
+
+			var current = root;
+			for (var i = 1; i < parsed.Properties.Count; i++)
+			{
+				var next = PathResolver.FindRelativeByUserName(current, parsed.Properties[i]);
+				if (next == null)
+					return new ErrorResponse(
+						$"No sub-property '{parsed.Properties[i]}' under '{JoinProps(parsed.Properties, i)}'.",
+						ErrorKind.NotFound);
+				current = next;
+			}
+
+			var value = SerializedPropertyReader.Read(current);
+			if (format == "json")
+			{
+				return new SuccessResponse("", new Dictionary<string, object>
+				{
+					["path"] = ProjectSettingsResolver.CanonicalPath(parsed.SettingsGroup),
+					["property"] = JoinProps(parsed.Properties, parsed.Properties.Count),
+					["type"] = current.propertyType.ToString(),
+					["value"] = value,
+				});
+			}
 			return new SuccessResponse("", FormatPipeFriendly(value));
 		}
 

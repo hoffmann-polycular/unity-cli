@@ -44,6 +44,11 @@ type CommandResponse struct {
 	Message   string          `json:"message"`
 	Data      json.RawMessage `json:"data,omitempty"`
 	ErrorKind string          `json:"errorKind,omitempty"`
+	// PartialFailure indicates a multi-target operation where some targets
+	// succeeded and some failed (§4.6). The CLI prints Data to stdout as
+	// usual, prints Stderr to stderr, and exits with a non-zero status.
+	PartialFailure bool   `json:"partialFailure,omitempty"`
+	Stderr         string `json:"stderr,omitempty"`
 }
 
 // isProcessDead returns true only when the process is confirmed to not exist.

@@ -79,58 +79,135 @@ namespace UnityCliConnector.Tools
 			var depth = ResolveDepth(p);
 			var suffixFormat = ResolveAutoSuffix(p);
 
+			// v3 §4.2: <src> fans out across the selection. <dst> must end
+			// with '/' (a parent) when src cardinality > 1.
 			var srcParse = PathParser.Parse(srcArg);
 			if (!srcParse.IsSuccess) return ErrorResponse.FromResult(srcParse);
-			var srcRes = PathResolver.ResolveGameObject(srcParse.Value);
+			var srcRes = PathResolver.ResolveTargets(srcParse.Value);
 			if (!srcRes.IsSuccess) return ErrorResponse.FromResult(srcRes);
-			var src = srcRes.Value;
+			var srcs = srcRes.Value;
+			if (srcs.Count == 0)
+				return ErrorResponse.NotFound($"Source path '{srcArg}' matched no GameObjects.");
 
-			var dstSplit = MoveCopyPath.Split(dstArg, src.name);
-			if (!dstSplit.IsSuccess) return ErrorResponse.FromResult(dstSplit);
-			var (parentPath, desiredName) = dstSplit.Value;
+			var dstIsParent = dstArg.EndsWith("/");
+			if (srcs.Count > 1 && !dstIsParent)
+				return ErrorResponse.Ambiguous(
+					$"cp src fans out to {srcs.Count} objects but destination '{dstArg}' is a single name. " +
+					"Use a 'parent/' destination to copy all sources under one parent.");
 
-			GameObject parent = null;
-			Transform parentT = null;
-			if (!MoveCopyPath.IsSceneRoot(parentPath))
+			// Resolve the destination parent once when broadcasting.
+			GameObject sharedParent = null;
+			Transform sharedParentT = null;
+			string parentPath = null;
+			if (dstIsParent)
 			{
-				var parentParse = PathParser.Parse(parentPath);
-				if (!parentParse.IsSuccess) return ErrorResponse.FromResult(parentParse);
-				var parentRes = PathResolver.ResolveGameObject(parentParse.Value);
-				if (!parentRes.IsSuccess) return ErrorResponse.FromResult(parentRes);
-				parent = parentRes.Value;
-				parentT = parent.transform;
+				var split = MoveCopyPath.Split(dstArg, "");
+				if (!split.IsSuccess) return ErrorResponse.FromResult(split);
+				parentPath = split.Value.parentPath;
+				if (!MoveCopyPath.IsSceneRoot(parentPath))
+				{
+					var parentParse = PathParser.Parse(parentPath);
+					if (!parentParse.IsSuccess) return ErrorResponse.FromResult(parentParse);
+					var parentRes = PathResolver.ResolveGameObject(parentParse.Value);
+					if (!parentRes.IsSuccess) return ErrorResponse.FromResult(parentRes);
+					sharedParent = parentRes.Value;
+					sharedParentT = sharedParent.transform;
+				}
 			}
 
-			var clone = Object.Instantiate(src, parentT);
-			if (clone == null)
-				return new ErrorResponse($"Failed to clone '{srcArg}'.");
+			var entries = new List<object>(srcs.Count);
+			var stdoutLines = new List<string>(srcs.Count);
+			var errorLines = new List<string>();
 
-			// When parented to scene root (null), keep the clone in the same
-			// scene as the source rather than the active scene.
-			if (parentT == null && src.scene.IsValid())
-				SceneManager.MoveGameObjectToScene(clone, src.scene);
-
-			clone.name = MoveCopyPath.PickName(parentT, desiredName, suffixFormat);
-
-			if (depth >= 0)
-				PruneToDepth(clone.transform, depth);
-
-			Undo.RegisterCreatedObjectUndo(clone, $"Copy {src.name}");
-
-			if (parent != null) EditorUtility.SetDirty(parent);
-			EditorUtility.SetDirty(clone);
-
-			var canonical = PathResolver.GetCanonicalPath(clone);
-			var data = new Dictionary<string, object>
+			foreach (var src in srcs)
 			{
-				["path"] = canonical,
-				["name"] = clone.name,
-				["parent"] = parent != null ? PathResolver.GetCanonicalPath(parent) : "",
-				["source"] = PathResolver.GetCanonicalPath(src),
-				["depth"] = depth < 0 ? -1 : depth,
-				["instanceId"] = clone.GetInstanceID(),
-			};
-			return new SuccessResponse(canonical, data);
+				GameObject parent;
+				Transform parentT;
+				string desiredName;
+				if (dstIsParent)
+				{
+					parent = sharedParent;
+					parentT = sharedParentT;
+					desiredName = src.name;
+				}
+				else
+				{
+					// Single src (we already errored on multi+non-parent dst).
+					var split = MoveCopyPath.Split(dstArg, src.name);
+					if (!split.IsSuccess) return ErrorResponse.FromResult(split);
+					var (pPath, name) = split.Value;
+					desiredName = name;
+					if (MoveCopyPath.IsSceneRoot(pPath))
+					{
+						parent = null;
+						parentT = null;
+					}
+					else
+					{
+						var parentParse = PathParser.Parse(pPath);
+						if (!parentParse.IsSuccess) return ErrorResponse.FromResult(parentParse);
+						var parentRes = PathResolver.ResolveGameObject(parentParse.Value);
+						if (!parentRes.IsSuccess) return ErrorResponse.FromResult(parentRes);
+						parent = parentRes.Value;
+						parentT = parent.transform;
+					}
+				}
+
+				var clone = Object.Instantiate(src, parentT);
+				if (clone == null)
+				{
+					errorLines.Add($"{PathResolver.GetCanonicalPath(src)}: failed to clone.");
+					continue;
+				}
+
+				if (parentT == null && src.scene.IsValid())
+					SceneManager.MoveGameObjectToScene(clone, src.scene);
+
+				clone.name = MoveCopyPath.PickName(parentT, desiredName, suffixFormat);
+
+				if (depth >= 0)
+					PruneToDepth(clone.transform, depth);
+
+				Undo.RegisterCreatedObjectUndo(clone, $"Copy {src.name}");
+
+				if (parent != null) EditorUtility.SetDirty(parent);
+				EditorUtility.SetDirty(clone);
+
+				var canonical = PathResolver.GetCanonicalPath(clone);
+				stdoutLines.Add(canonical);
+				entries.Add(new Dictionary<string, object>
+				{
+					["path"] = canonical,
+					["name"] = clone.name,
+					["parent"] = parent != null ? PathResolver.GetCanonicalPath(parent) : "",
+					["source"] = PathResolver.GetCanonicalPath(src),
+					["depth"] = depth < 0 ? -1 : depth,
+					["instanceId"] = clone.GetInstanceID(),
+				});
+			}
+
+			if (srcs.Count == 1)
+			{
+				// Preserve the legacy single-target shape so existing callers
+				// keep working.
+				var single = entries.Count > 0 ? entries[0] : null;
+				var msg = stdoutLines.Count > 0 ? stdoutLines[0] : "";
+				var resp = new SuccessResponse(msg, single);
+				if (errorLines.Count > 0)
+				{
+					resp.partialFailure = true;
+					resp.stderr = string.Join("\n", errorLines);
+				}
+				return resp;
+			}
+
+			var multi = new SuccessResponse("", string.Join("\n", stdoutLines));
+			if (errorLines.Count > 0)
+			{
+				multi.partialFailure = true;
+				multi.stderr = string.Join("\n", errorLines);
+			}
+			return multi;
 		}
 
 		// --- helpers ---

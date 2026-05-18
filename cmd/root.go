@@ -232,6 +232,16 @@ func Execute() error {
 		return &exit.CLIError{Code: code, Msg: ""}
 	}
 
+	// Per §4.6: multi-target operations with mixed success/failure print
+	// successful values to stdout and per-target errors to stderr, then
+	// exit non-zero.
+	if resp.PartialFailure {
+		if resp.Stderr != "" {
+			fmt.Fprintln(os.Stderr, resp.Stderr)
+		}
+		return &exit.CLIError{Code: exit.Runtime, Msg: ""}
+	}
+
 	return nil
 }
 
@@ -393,13 +403,26 @@ Editor Control:
   editor refresh [--force]      Refresh asset database (blocked in play mode unless forced)
   editor refresh --compile      Recompile scripts and wait until done
 
+Path Grammar (v3):
+  Selection IS the working directory. Paths fan out across multi-selection.
+    bare / ./X       child of each selected object
+    .                the selection itself
+    ..               parent of selection (../.. for grandparent, etc.)
+    /World/Player    absolute Hierarchy path (root of every loaded scene + prefab stage)
+    Assets/Foo.prefab            asset
+    Assets/Foo.prefab//Hat       sub-object inside an asset
+    ProjectSettings/Physics.gravity   project setting
+    #14352                        instance ID
+
 Scene:
-  ls [<path>]                   List children (or scene roots when omitted)
-  ls -r <path>                  Recurse into descendants
+  ls                            List Hierarchy roots (matches the Hierarchy window)
+  ls .                          List children of the current selection
+  ls /World/Player              List children of an absolute path
+  ls -R <path>                  Recurse into descendants
   ls --components <path>        Include component types per object
   ls --json | --plain           Structured / pipe-friendly output
   find --name "Enemy*"          Search by name glob across loaded scenes
-  find <path> --name "..."      Restrict scene search to a subtree
+  find <path> --name "..."      Restrict scene search to a subtree (path may fan out)
   find --component Rigidbody    Require a component (may repeat)
   find --missing Collider       Exclude by component (may repeat)
   find --tag X --layer Y        Tag / layer filters
@@ -407,20 +430,24 @@ Scene:
   find --has-overrides          Only prefab instances with overrides
   find Assets/                  Search asset database (path prefix = asset mode)
   find Assets/Prefabs/ --type Prefab  Asset search with type filter
-  find Assets/Prefabs/Enemy*    Path glob in asset database
   inspect <path>                Dump GameObject + components (Inspector view)
-  inspect <path>:Component      Show one component's serialized properties
+  inspect :Component            Show selection's component (selection-anchored)
   inspect <path>:Comp.prop      Show a single property value
   inspect --overrides-only      Trim to prefab-overridden values
+  inspect ProjectSettings/Physics    Inspect a Project Settings group
   get <path>:Comp.prop          Read one property value (scripting-friendly)
+  get :Rigidbody.mass           Read property on every selected object (fan-out)
   get --source                  Read prefab source value, ignoring overrides
+  get ProjectSettings/Physics.gravity   Read a project setting
   set <path>:Comp.prop <value>  Write one property value (registers Undo)
-  set <path>:Comp.prop --all    Broadcast to every match (no ambiguity error)
+  set :Rigidbody.mass 100       Broadcast to every selected object (fan-out is default)
+  set ProjectSettings/Physics.gravity "0 -20 0"   Write a project setting
   get ... | set ...             Pipe values between objects
   component list <path>         List components on a GameObject
   component add <path> <type>   Add a component (returns canonical path)
   component remove <path> <t>   Remove a component (use Type[n] for duplicates)
   select <path>                 Set Editor Selection (bridge to Hierarchy)
+  select :Hat                   Select each selection's Hat child (fan-out)
   select --get                  Print current Selection (one path per line)
   select --add <path>           Add to Selection
   select --clear                Deselect all
@@ -428,7 +455,7 @@ Scene:
   create Cube <p>/<name>        Create primitive (Cube, Sphere, ...)
   create --prefab <asset> <p>   Instantiate prefab instance
   delete <path>                 Destroy a GameObject and its children
-  delete <path> --all           Destroy all matches (no ambiguity error)
+  delete .                      Destroy the current selection (fan-out)
   find ... --plain | delete     Batch delete via stdin (one path per line)
   cp <src> <parent>/<name>      Copy a GameObject to a new location
   cp <src> <parent>/            Copy under parent, keep source name
@@ -741,37 +768,33 @@ Notes:
     Unity instance see the prefab stage. close restores the previous stage.
 `)
 	case "delete":
-		fmt.Print(`Usage: unity-cli delete <path> [--all]
+		fmt.Print(`Usage: unity-cli delete <path>
        echo <path> | unity-cli delete
        find ... --plain | unity-cli delete
 
-Destroy a GameObject and its children. Supports single deletions, ambiguous
-path resolution via --all, and batch deletion from stdin.
+Destroy GameObjects (and their children).
 
-All deletions register with Undo so the Editor's undo stack records them.
+v3: fan-out is the default. A selection-anchored path with multi-selection
+deletes every resolved object. All deletions are wrapped in a single Undo
+group — one Ctrl-Z reverses the operation.
 
 Modes:
-  delete <path>               Destroy a single object (error if path is ambiguous).
-  delete <path> --all         Destroy all GameObjects matching an ambiguous path.
-  delete (stdin)              Batch mode: read paths from stdin (one per line)
-                              and delete each.
-
-Batch mode:
-  Works with find's --plain output or any tool emitting canonical paths.
-  Lines are trimmed and empty lines are skipped.
+  delete .                    Destroy the current selection (one or many).
+  delete ./Temp               Destroy each selection's Temp child.
+  delete /World/Enemies/Old   Destroy a single absolute path.
+  delete (stdin)              Batch mode: read paths from stdin, delete each.
 
 Examples:
-  unity-cli delete World/Enemies/OldSpawn
-  unity-cli delete World/Temp --all
+  unity-cli delete .                                     # delete the selection
+  unity-cli delete /World/Enemies/OldSpawn
   unity-cli find --name "Temp_*" --plain | unity-cli delete
-  unity-cli find --name "Spawn*" --plain | xargs -I{} unity-cli delete {} --all
-  unity-cli ls World/Enemies --plain | unity-cli delete
+  unity-cli ls /World/Enemies --plain | unity-cli delete
 
 Notes:
   - Destroying a GameObject automatically destroys all its children.
   - Attempting to delete a non-existent path is an error (even in batch mode).
-  - In batch mode, failures on one path do not halt processing of others;
-    the response reports both deleted and failed counts.
+  - In batch mode and fan-out mode, failures on one path do not halt
+    processing of others; the response reports both deleted and failed counts.
 `)
 	case "create":
 		fmt.Print(`Usage: unity-cli create <type> <parentpath>/<name>
@@ -935,9 +958,9 @@ Examples:
   unity-cli reorder World/Player:Collider --before Rigidbody
 `)
 	case "select":
-		fmt.Print(`Usage: unity-cli select <path>
+		fmt.Print(`Usage: unity-cli select <path>...
        unity-cli select --get
-       unity-cli select --add <path>
+       unity-cli select --add <path>...
        unity-cli select --clear
        echo <path> | unity-cli select
 
@@ -945,31 +968,32 @@ Bridge between the Editor's Selection (Hierarchy/Inspector highlight) and
 the terminal. Enables Hierarchy-driven workflows and visual feedback from
 CLI commands.
 
+v3: each path positional resolves through the v3 path grammar (including
+selection-relative anchors) and the union becomes the new selection.
+'./Hat' with three Players selected selects all three Hat children.
+
 Modes:
-  select <path>               Set Editor selection to this GameObject only.
+  select <path>               Set Editor selection to the resolved targets.
   select --get                Print all currently selected objects' paths
                               (one per line). Empty when nothing selected.
-  select --add <path>         Add a GameObject to the current selection
-                              (does not deselect others).
+  select --add <path>         Add resolved targets to the current selection.
   select --clear              Deselect everything (clear selection).
 
-Stdin piping works when no positional path is supplied. Example:
+Stdin piping works when no positional path is supplied:
   find --component Light --plain | head -1 | select
-This selects the first Light in the scene.
 
 Examples:
-  unity-cli select World/Player
+  unity-cli select /World/Player
+  unity-cli select ./Hat                              # fan-out: each selection's Hat
   unity-cli select --get
   unity-cli select --get | unity-cli inspect
-  unity-cli select --add World/Enemy
+  unity-cli select --add /World/Enemy
   unity-cli select --clear
-  unity-cli find --name "Spawn*" --plain | xargs -I{} unity-cli select --add {}
   unity-cli find --component Light --plain | head -1 | unity-cli select
 
 Notes:
   - Selection updates are reflected immediately in the Hierarchy window.
-  - Piping works with find, component list (via post-processing), or any
-    command that outputs canonical paths.
+  - Piping works with find, ls, get, or any tool emitting canonical paths.
 `)
 	case "component":
 		fmt.Print(`Usage: unity-cli component <list|add|remove> <path> [<type>]
@@ -1017,6 +1041,10 @@ Notes:
 Read a single serialized-property value. The path must include both a
 component and a property, optionally drilling into sub-fields.
 
+v3 fan-out: a selection-anchored path with multi-selection emits one line
+per target, prefixed with the canonical path. Single-target retains the
+scalar-only output.
+
 Default output is pipe-friendly:
   - Scalars print raw                 (3.14, true, "hello")
   - Vectors / colors print components space-separated   (1 2 3)
@@ -1025,11 +1053,14 @@ Default output is pipe-friendly:
 
 So 'get | set' and 'get | inspect' chains work without quoting tricks.
 
-Path:
-  Player:Transform.position          Full vector value
-  Player:Transform.position.x        Scalar sub-field
-  Enemy[1]:Rigidbody.mass            Disambiguate duplicate siblings
+Path (v3):
+  :Transform.position                Selection's transform position
+  :Rigidbody.mass                    Selection's Rigidbody mass (fan-out)
+  /World/Player:Transform.position   Absolute path
+  ./Hat:MeshRenderer.enabled         Selection's Hat child (fan-out)
+  /World/Enemy[1]:Rigidbody.mass     Disambiguate duplicate siblings
   #14352:Transform.localScale        Resolve by instance ID
+  ProjectSettings/Physics.gravity    Project setting
 
 Options:
   --source                    Read the prefab source value instead of the
@@ -1037,12 +1068,11 @@ Options:
   --json                      Wrap value with path/component/type metadata
 
 Examples:
-  unity-cli get World/Player:Transform.position
-  unity-cli get World/Player:Transform.position.x
-  unity-cli get World/Player:Rigidbody.mass --json
-  unity-cli get World/Player:Transform.position --source
-  unity-cli get World/A:Transform.position | unity-cli set World/B:Transform.position
-  unity-cli get World/Enemy:AIScript.target | unity-cli inspect
+  unity-cli get :Transform.position
+  unity-cli get :Rigidbody.mass                    # fan-out: one per selected
+  unity-cli get /World/Player:Transform.position
+  unity-cli get ProjectSettings/Physics.gravity
+  unity-cli get /World/A:Transform.position | unity-cli set /World/B:Transform.position
 `)
 	case "set":
 		fmt.Print(`Usage: unity-cli set <path> <value>
@@ -1052,11 +1082,17 @@ Examples:
 Write a single serialized-property value. Goes through SerializedObject,
 so prefab overrides register and Undo works exactly like an Inspector edit.
 
+v3: fan-out is the default. A multi-target path broadcasts the value to
+every resolved object, all writes share one Undo group, and per-target
+failures are reported but do not stop other writes.
+
 The value can be supplied as a positional, --value, or piped via stdin.
 Piped form is the target of 'get | set' round-trips.
 
-Path:
-  Same grammar as 'get' / 'inspect'. Must include :Component.property.
+Path (v3):
+  Same grammar as 'get' / 'inspect'. Must include :Component.property,
+  or be a 'ProjectSettings/Group.prop' path. Selection-anchored paths
+  (bare, ./, ../) implicitly fan out across multi-selection.
 
 Value (type-aware, permissive):
   Scalars       42       3.14       true       "hello"
@@ -1067,28 +1103,23 @@ Value (type-aware, permissive):
   Enums         "Awake"   1
   Object refs   "Assets/Prefabs/Enemy.prefab"
                 "#14352"
-                "World/Other/Target"    (scene path; picks the right
-                                         component type if the field
-                                         expects one)
+                "/World/Other/Target"   (Hierarchy path)
   Null          null   none   ""
 
 JSON-shaped values go through --params:
-  unity-cli set World/Player:Transform.position \
+  unity-cli set :Transform.position \
     --params '{"value":{"x":1,"y":2,"z":3}}'
 
-Options:
-  --all                       Broadcast to every GameObject the path
-                              matches instead of erroring on ambiguity
-
 Examples:
-  unity-cli set World/Player:Transform.position.x 1.5
-  unity-cli set World/Player:Transform.position "1 2 3"
-  unity-cli set World/Player:Rigidbody.mass 5.0
-  unity-cli set World/Player:Renderer.material "Assets/Mats/Red.mat"
-  unity-cli set World/Enemy:AIScript.target World/Player
-  unity-cli set World/Enemy:AIScript.target null
-  unity-cli set World/Enemies/Enemy:Light.intensity 2 --all
-  unity-cli get World/A:Transform.position | unity-cli set World/B:Transform.position
+  unity-cli set :Transform.position.x 1.5
+  unity-cli set :Transform.position "1 2 3"
+  unity-cli set :Rigidbody.mass 5.0                   # fan-out across selection
+  unity-cli set ./Hat:MeshRenderer.enabled false      # one per selected
+  unity-cli set /World/Player:Renderer.material "Assets/Mats/Red.mat"
+  unity-cli set /World/Enemy:AIScript.target /World/Player
+  unity-cli set /World/Enemy:AIScript.target null
+  unity-cli set ProjectSettings/Physics.gravity "0 -20 0"
+  unity-cli get /World/A:Transform.position | unity-cli set /World/B:Transform.position
 
 Notes:
   - Composite properties (Generic / ManagedReference) must be set via
@@ -1103,25 +1134,34 @@ Dump the Inspector view of whatever the path resolves to:
   - GameObject:Component   → that component's serialized properties
   - GameObject:Comp.prop   → a single property value (drills into sub-fields
                              with further .name segments, e.g. .position.x)
+  - ProjectSettings/Group  → a Project Settings group's properties
 
-Path grammar (full reference: unity-cli-reference.md):
-  World/Player                Hierarchy path
-  World/Enemy[1]              Disambiguate duplicate sibling names
-  #14352                      Resolve by Unity instance ID
-  Player:Transform            Component
-  Player:Transform.position   Property
-  Player:Transform.position.x Sub-property
+Multi-target paths (e.g. selection-relative paths under multi-selection)
+emit one block per target, in selection order.
+
+Path grammar (v3 — full reference: unity-cli-path-contract-v3.md):
+  .                           Selection itself
+  :Component[.prop]           Component / property on the selection
+  ./Hat                       Child Hat of each selected object (fan-out)
+  ..                          Parent of selection
+  /World/Player               Absolute Hierarchy path
+  /World/Enemy[1]             Disambiguate duplicate sibling names
+  #14352                      Unity instance ID
+  Assets/Foo.prefab//Sub      Sub-object inside an asset
+  ProjectSettings/Physics     Project Settings group
 
 Options:
   --overrides-only            Only show values overridden from the prefab
   --json                      Structured JSON output
 
 Examples:
-  unity-cli inspect World/Player
-  unity-cli inspect World/Player:Transform
-  unity-cli inspect World/Player:Transform.position
-  unity-cli inspect World/Enemy[1]:Rigidbody.mass
-  unity-cli inspect World/Player --overrides-only --json
+  unity-cli inspect .                                 # the selection
+  unity-cli inspect :Rigidbody                        # selection's Rigidbody
+  unity-cli inspect /World/Player
+  unity-cli inspect /World/Player:Transform.position
+  unity-cli inspect ProjectSettings/Physics
+  unity-cli inspect ProjectSettings/Physics.gravity
+  unity-cli inspect Assets/Prefabs/Enemy.prefab//Weapon
 `)
 	case "ls":
 		fmt.Print(`Usage: unity-cli ls [<path>] [options]
@@ -1129,23 +1169,28 @@ Examples:
 List the children of a GameObject. With no path, lists root objects across
 all loaded scenes (matches the Hierarchy window).
 
-Path grammar (full reference: unity-cli-reference.md):
-  World/Player                Hierarchy path
-  World/Enemy[1]              Disambiguate duplicate sibling names
-  #14352                      Resolve by Unity instance ID
+Path grammar (v3 — full reference: unity-cli-path-contract-v3.md):
+  (no path)                   Hierarchy roots
+  .                           Selection itself (children of)
+  ./X or X                    Selection's child X (fan-out across multi-selection)
+  ..                          Parent of selection
+  /World/Player               Absolute Hierarchy path
+  Assets/Foo.prefab           Asset (sub-objects with //)
+  #14352                      Unity instance ID
 
 Options:
-  -r, --recursive             Descend into descendants
+  -R, --recursive             Descend into descendants
   -c, --components            Include each object's component type list
   --json                      Structured JSON output (jq-friendly)
   --plain                     One canonical path per line (xargs/grep-friendly)
   --null-delimited            \0-separated paths (xargs -0 for paths with spaces)
 
 Examples:
-  unity-cli ls
-  unity-cli ls World/Player
-  unity-cli ls -r World --components
-  unity-cli ls -r --plain | grep Enemy
+  unity-cli ls                                        # Hierarchy roots
+  unity-cli ls .                                      # children of selection
+  unity-cli ls /World/Player
+  unity-cli ls -R /World --components
+  unity-cli ls -R --plain | grep Enemy
 `)
 	case "console":
 		fmt.Print(`Usage: unity-cli console [options]

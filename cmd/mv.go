@@ -33,9 +33,10 @@ import (
 // mvCmd reparents and/or renames a GameObject in one operation.
 //
 // Forms:
-//   mv <src> <parent>/<name>     reparent + rename
-//   mv <src> <parent>/           reparent, keep source name
-//   mv <src> <parent>/<newname>  pure rename when parent == current parent
+//
+//	mv <src> <parent>/<name>     reparent + rename
+//	mv <src> <parent>/           reparent, keep source name
+//	mv <src> <parent>/<newname>  pure rename when parent == current parent
 func mvCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	if len(args) < 2 {
 		return nil, fmt.Errorf("usage: unity-cli mv <src> <dst>\n  <dst> is 'parent/name' or 'parent/' (keep source name)")

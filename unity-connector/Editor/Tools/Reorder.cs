@@ -93,17 +93,56 @@ namespace UnityCliConnector.Tools
 			if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
 			var parsed = parseResult.Value;
 
-			var goRes = PathResolver.ResolveGameObject(parsed);
-			if (!goRes.IsSuccess) return ErrorResponse.FromResult(goRes);
-			var go = goRes.Value;
+			// v3: <p> fans out, <op> is broadcast.
+			var targetsRes = PathResolver.ResolveTargets(parsed);
+			if (!targetsRes.IsSuccess) return ErrorResponse.FromResult(targetsRes);
+			var targets = targetsRes.Value;
 
 			var op = ResolveOp(p);
 			if (!op.IsSuccess) return ErrorResponse.FromResult(op);
 
-			if (parsed.Component.IsPresent)
-				return ReorderComponent(go, parsed.Component, op.Value);
+			if (targets.Count == 1)
+			{
+				var go = targets[0];
+				if (parsed.Component.IsPresent)
+					return ReorderComponent(go, parsed.Component, op.Value);
+				return ReorderSibling(go, op.Value);
+			}
 
-			return ReorderSibling(go, op.Value);
+			// Fan-out: one Undo group, per-target results.
+			var undoGroup = Undo.GetCurrentGroup();
+			Undo.IncrementCurrentGroup();
+			Undo.SetCurrentGroupName("reorder");
+
+			var applied = new List<object>();
+			var errors = new List<string>();
+			foreach (var go in targets)
+			{
+				object result = parsed.Component.IsPresent
+					? ReorderComponent(go, parsed.Component, op.Value)
+					: ReorderSibling(go, op.Value);
+				switch (result)
+				{
+					case SuccessResponse sr:
+						applied.Add(sr.data);
+						break;
+					case ErrorResponse er:
+						errors.Add($"{PathResolver.GetCanonicalPath(go)}: {er.message}");
+						break;
+				}
+			}
+			Undo.CollapseUndoOperations(undoGroup);
+
+			if (applied.Count == 0)
+				return new ErrorResponse(string.Join("\n", errors));
+			var msg = errors.Count == 0
+				? $"reorder applied to {applied.Count} object(s)."
+				: $"reorder applied to {applied.Count} object(s); {errors.Count} failed.";
+			return new SuccessResponse(msg, new Dictionary<string, object>
+			{
+				["applied"] = applied,
+				["errors"] = errors,
+			});
 		}
 
 		// --- sibling reorder ---

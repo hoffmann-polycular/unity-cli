@@ -33,28 +33,31 @@ namespace UnityCliConnector.Tools
 	/// Get or set the Unity Editor's current Selection — the bridge between
 	/// the terminal and the Hierarchy/Inspector windows.
 	///
-	/// Modes:
-	///   - No flags                → set selection to the given path
-	///   - <c>--get</c>            → emit currently selected paths (one per line)
-	///   - <c>--add</c>            → add the given path to the current selection
-	///   - <c>--clear</c>          → deselect all
+	/// v3: paths fan out the same way as everywhere else. <c>select Hat</c>
+	/// with three Players selected replaces the selection with all three
+	/// Hat children. <c>select --add ...</c> adds every fan-out target.
+	/// Multiple positional paths (or stdin lines) compose: each is resolved
+	/// and the union becomes the new selection.
 	///
-	/// Paths are canonicalized so <c>get | inspect</c> and <c>find | select</c>
-	/// chains work seamlessly.
+	/// Modes:
+	///   - No flags                → set selection to the resolved path(s)
+	///   - <c>--get</c>            → emit currently selected paths (one per line)
+	///   - <c>--add</c>            → add the resolved path(s) to current selection
+	///   - <c>--clear</c>          → deselect all
 	/// </summary>
 	[UnityCliTool(Name = "select",
-		Description = "Get or set the Editor's current Selection (Hierarchy bridge).")]
+		Description = "Get or set the Editor's current Selection. Path fan-out becomes the new selection.")]
 	public static class Select
 	{
 		public class Parameters
 		{
-			[ToolParameter("GameObject path to select. Omitted with --get / --clear; optional with --add (read from stdin).")]
+			[ToolParameter("GameObject path(s) to select. Bare/'./' = selection-relative; '/' = Hierarchy root.")]
 			public string Path { get; set; }
 
 			[ToolParameter("Print currently selected paths, one per line.")]
 			public bool Get { get; set; }
 
-			[ToolParameter("Add a path to the current selection instead of replacing it.")]
+			[ToolParameter("Add to the current selection instead of replacing it.")]
 			public bool Add { get; set; }
 
 			[ToolParameter("Clear the selection (deselect all).")]
@@ -65,10 +68,19 @@ namespace UnityCliConnector.Tools
 		{
 			var p = new ToolParams(@params);
 
-			// Positional: `args` may contain the path when user writes `select World/Player`.
 			var args = p.GetRaw("args") as JArray;
-			var path = p.Get("path")
-					   ?? (args != null && args.Count > 0 ? args[0]?.ToString() : null);
+			var positional = new List<string>();
+			if (args != null)
+			{
+				foreach (var a in args)
+				{
+					var s = a?.ToString();
+					if (!string.IsNullOrEmpty(s)) positional.Add(s);
+				}
+			}
+			var pathFlag = p.Get("path");
+			if (!string.IsNullOrEmpty(pathFlag) && (positional.Count == 0 || positional[0] != pathFlag))
+				positional.Insert(0, pathFlag);
 
 			var get = p.GetBool("get");
 			var add = p.GetBool("add");
@@ -80,15 +92,8 @@ namespace UnityCliConnector.Tools
 				var paths = new List<string>();
 				foreach (var obj in Selection.objects)
 				{
-					var gameObject = obj as GameObject;
-					if (gameObject != null)
-					{
-						paths.Add(PathResolver.GetCanonicalPath(gameObject));
-						continue;
-					}
-					var comp = obj as Component;
-					if (comp != null)
-						paths.Add(PathResolver.GetCanonicalPath(comp.gameObject));
+					if (obj is GameObject go) paths.Add(PathResolver.GetCanonicalPath(go));
+					else if (obj is Component c && c != null) paths.Add(PathResolver.GetCanonicalPath(c.gameObject));
 				}
 				var output = string.Join("\n", paths);
 				return new SuccessResponse(output.Length == 0 ? "(no selection)" : "", output);
@@ -101,31 +106,69 @@ namespace UnityCliConnector.Tools
 				return new SuccessResponse("Selection cleared.");
 			}
 
-			// set or --add: requires a path.
-			if (string.IsNullOrWhiteSpace(path))
+			if (positional.Count == 0)
 				return new ErrorResponse("Path required (or --get / --clear).");
 
-			var parseResult = PathParser.Parse(path);
-			if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
+			// Resolve every positional through the fan-out resolver. Selection-
+			// anchored paths are resolved against the selection AS IT EXISTS
+			// AT THE START of the call — we snapshot once so a multi-positional
+			// invocation doesn't see its own intermediate selection edits.
+			var snapshotBefore = PathResolver.SelectionSnapshot();
+			var resolved = new List<GameObject>();
+			var errors = new List<string>();
+			foreach (var path in positional)
+			{
+				var parseResult = PathParser.Parse(path);
+				if (!parseResult.IsSuccess) { errors.Add($"{path}: {parseResult.ErrorMessage}"); continue; }
 
-			var goResult = PathResolver.ResolveGameObject(parseResult.Value);
-			if (!goResult.IsSuccess) return ErrorResponse.FromResult(goResult);
-			var go = goResult.Value;
-			var canonicalPath = PathResolver.GetCanonicalPath(go);
+				var targetsRes = PathResolver.ResolveTargets(parseResult.Value);
+				if (!targetsRes.IsSuccess) { errors.Add($"{path}: {targetsRes.ErrorMessage}"); continue; }
+
+				resolved.AddRange(targetsRes.Value);
+			}
+
+			if (resolved.Count == 0)
+			{
+				if (errors.Count > 0)
+					return new ErrorResponse(string.Join("\n", errors));
+				return new ErrorResponse("No targets resolved from the given paths.");
+			}
+
+			// Dedup while preserving first-seen order.
+			var dedup = new List<UnityEngine.Object>();
+			var seen = new HashSet<int>();
+			void Push(UnityEngine.Object o)
+			{
+				if (o == null) return;
+				var id = o.GetInstanceID();
+				if (seen.Add(id)) dedup.Add(o);
+			}
 
 			if (add)
 			{
-				// Add to current selection.
-				var current = new List<UnityEngine.Object>(Selection.objects);
-				if (!current.Contains(go))
-					current.Add(go);
-				Selection.objects = current.ToArray();
-				return new SuccessResponse($"Added {canonicalPath} to selection.");
+				// Start from current selection, then add resolved targets.
+				foreach (var s in Selection.objects) Push(s);
 			}
+			foreach (var go in resolved) Push(go);
 
-			// Default: set selection to this object only.
-			Selection.objects = new UnityEngine.Object[] { go };
-			return new SuccessResponse($"Selected {canonicalPath}.");
+			Selection.objects = dedup.ToArray();
+
+			var canonicalPaths = new List<string>(resolved.Count);
+			foreach (var go in resolved)
+				canonicalPaths.Add(PathResolver.GetCanonicalPath(go));
+
+			var verb = add ? "Added" : "Selected";
+			var msg = canonicalPaths.Count == 1
+				? $"{verb} {canonicalPaths[0]}."
+				: $"{verb} {canonicalPaths.Count} object(s).";
+			if (errors.Count > 0) msg += $" ({errors.Count} input(s) failed.)";
+
+			return new SuccessResponse(msg, new Dictionary<string, object>
+			{
+				["selected"] = canonicalPaths,
+				["errors"] = errors,
+				["snapshotBefore"] = snapshotBefore.Count,
+			});
 		}
 	}
 }

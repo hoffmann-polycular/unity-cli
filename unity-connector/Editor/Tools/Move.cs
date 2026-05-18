@@ -64,61 +64,142 @@ namespace UnityCliConnector.Tools
 			if (string.IsNullOrWhiteSpace(dstArg))
 				return new ErrorResponse("mv requires a destination path.");
 
+			// v3 §4.2: <src> fans out across the selection. <dst> must end with
+			// '/' (a parent) when src cardinality > 1.
 			var srcParse = PathParser.Parse(srcArg);
 			if (!srcParse.IsSuccess) return ErrorResponse.FromResult(srcParse);
-			var srcRes = PathResolver.ResolveGameObject(srcParse.Value);
+			var srcRes = PathResolver.ResolveTargets(srcParse.Value);
 			if (!srcRes.IsSuccess) return ErrorResponse.FromResult(srcRes);
-			var src = srcRes.Value;
+			var srcs = srcRes.Value;
+			if (srcs.Count == 0)
+				return ErrorResponse.NotFound($"Source path '{srcArg}' matched no GameObjects.");
 
-			var dstSplit = MoveCopyPath.Split(dstArg, src.name);
-			if (!dstSplit.IsSuccess) return ErrorResponse.FromResult(dstSplit);
-			var (parentPath, newName) = dstSplit.Value;
+			var dstIsParent = dstArg.EndsWith("/");
+			if (srcs.Count > 1 && !dstIsParent)
+				return ErrorResponse.Ambiguous(
+					$"mv src fans out to {srcs.Count} objects but destination '{dstArg}' is a single name. " +
+					"Use a 'parent/' destination to move all sources under one parent.");
 
-			GameObject parent = null;
-			Transform parentT = null;
-			var parentDisplay = "/";
-			if (!MoveCopyPath.IsSceneRoot(parentPath))
+			GameObject sharedParent = null;
+			Transform sharedParentT = null;
+			string sharedParentDisplay = "/";
+			if (dstIsParent)
 			{
-				var parentParse = PathParser.Parse(parentPath);
-				if (!parentParse.IsSuccess) return ErrorResponse.FromResult(parentParse);
-				var parentRes = PathResolver.ResolveGameObject(parentParse.Value);
-				if (!parentRes.IsSuccess) return ErrorResponse.FromResult(parentRes);
-				parent = parentRes.Value;
-				parentT = parent.transform;
-				parentDisplay = PathResolver.GetCanonicalPath(parent);
+				var split = MoveCopyPath.Split(dstArg, "");
+				if (!split.IsSuccess) return ErrorResponse.FromResult(split);
+				if (!MoveCopyPath.IsSceneRoot(split.Value.parentPath))
+				{
+					var parentParse = PathParser.Parse(split.Value.parentPath);
+					if (!parentParse.IsSuccess) return ErrorResponse.FromResult(parentParse);
+					var parentRes = PathResolver.ResolveGameObject(parentParse.Value);
+					if (!parentRes.IsSuccess) return ErrorResponse.FromResult(parentRes);
+					sharedParent = parentRes.Value;
+					sharedParentT = sharedParent.transform;
+					sharedParentDisplay = PathResolver.GetCanonicalPath(sharedParent);
+				}
+			}
+
+			var entries = new List<object>(srcs.Count);
+			var stdoutLines = new List<string>(srcs.Count);
+			var errorLines = new List<string>();
+
+			foreach (var src in srcs)
+			{
+				GameObject parent;
+				Transform parentT;
+				string newName;
+				string parentDisplay;
+				if (dstIsParent)
+				{
+					parent = sharedParent;
+					parentT = sharedParentT;
+					parentDisplay = sharedParentDisplay;
+					newName = src.name;
+				}
+				else
+				{
+					// Single src (we already errored on multi+non-parent dst).
+					var split = MoveCopyPath.Split(dstArg, src.name);
+					if (!split.IsSuccess) return ErrorResponse.FromResult(split);
+					var (pPath, name) = split.Value;
+					newName = name;
+					if (MoveCopyPath.IsSceneRoot(pPath))
+					{
+						parent = null;
+						parentT = null;
+						parentDisplay = "/";
+					}
+					else
+					{
+						var parentParse = PathParser.Parse(pPath);
+						if (!parentParse.IsSuccess) return ErrorResponse.FromResult(parentParse);
+						var parentRes = PathResolver.ResolveGameObject(parentParse.Value);
+						if (!parentRes.IsSuccess) return ErrorResponse.FromResult(parentRes);
+						parent = parentRes.Value;
+						parentT = parent.transform;
+						parentDisplay = PathResolver.GetCanonicalPath(parent);
+					}
+				}
 
 				if (parent == src)
-					return new ErrorResponse("Cannot move a GameObject into itself.");
-				if (MoveCopyPath.IsAncestor(src.transform, parent.transform))
-					return new ErrorResponse("Cannot move a GameObject into one of its own descendants.");
+				{
+					errorLines.Add($"{PathResolver.GetCanonicalPath(src)}: cannot move a GameObject into itself.");
+					continue;
+				}
+				if (parent != null && MoveCopyPath.IsAncestor(src.transform, parent.transform))
+				{
+					errorLines.Add($"{PathResolver.GetCanonicalPath(src)}: cannot move into one of its own descendants.");
+					continue;
+				}
+
+				var undoGroup = Undo.GetCurrentGroup();
+				Undo.SetCurrentGroupName($"Move {src.name} → {parentDisplay}/{newName}");
+
+				if (src.transform.parent != parentT)
+					Undo.SetTransformParent(src.transform, parentT, "Move GameObject");
+
+				if (src.name != newName)
+				{
+					Undo.RecordObject(src, "Rename GameObject");
+					src.name = newName;
+				}
+
+				Undo.CollapseUndoOperations(undoGroup);
+
+				EditorUtility.SetDirty(src);
+				if (parent != null) EditorUtility.SetDirty(parent);
+
+				var canonical = PathResolver.GetCanonicalPath(src);
+				stdoutLines.Add(canonical);
+				entries.Add(new Dictionary<string, object>
+				{
+					["path"] = canonical,
+					["name"] = src.name,
+					["parent"] = parent != null ? PathResolver.GetCanonicalPath(parent) : "",
+					["instanceId"] = src.GetInstanceID(),
+				});
 			}
 
-			var undoGroup = Undo.GetCurrentGroup();
-			Undo.SetCurrentGroupName($"Move {src.name} → {parentDisplay}/{newName}");
-
-			if (src.transform.parent != parentT)
-				Undo.SetTransformParent(src.transform, parentT, "Move GameObject");
-
-			if (src.name != newName)
+			if (srcs.Count == 1)
 			{
-				Undo.RecordObject(src, "Rename GameObject");
-				src.name = newName;
+				var single = entries.Count > 0 ? entries[0] : null;
+				var msg = stdoutLines.Count > 0 ? stdoutLines[0] : "";
+				var resp = new SuccessResponse(msg, single);
+				if (errorLines.Count > 0)
+				{
+					resp.partialFailure = true;
+					resp.stderr = string.Join("\n", errorLines);
+				}
+				return resp;
 			}
 
-			Undo.CollapseUndoOperations(undoGroup);
-
-			EditorUtility.SetDirty(src);
-			if (parent != null) EditorUtility.SetDirty(parent);
-
-			var canonical = PathResolver.GetCanonicalPath(src);
-			var data = new Dictionary<string, object>
+			var multi = new SuccessResponse("", string.Join("\n", stdoutLines));
+			if (errorLines.Count > 0)
 			{
-				["path"] = canonical,
-				["name"] = src.name,
-				["parent"] = parent != null ? PathResolver.GetCanonicalPath(parent) : "",
-				["instanceId"] = src.GetInstanceID(),
-			};
-			return new SuccessResponse(canonical, data);
+				multi.partialFailure = true;
+				multi.stderr = string.Join("\n", errorLines);
+			}
+			return multi;
 		}
 	}
 }
