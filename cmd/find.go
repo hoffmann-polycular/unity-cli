@@ -28,11 +28,21 @@ import (
 	"github.com/youngwoocho02/unity-cli/internal/client"
 )
 
-// findCmd searches for GameObjects across loaded scenes.
+// findCmd is a thin pass-through for the unified `find` C# tool.
 //
-// Handles repeated `--component` / `--missing` flags (collected into arrays)
-// and translates the output-format flags into the C# tool's `format` param.
-// Every other flag passes through the generic flag parser.
+// The C# side decides scene vs asset mode by inspecting the first positional
+// argument (an "Assets/" or "Packages/" prefix triggers asset search).
+// Go-side responsibilities are limited to:
+//   - collecting repeated --component / --missing flags into arrays
+//   - translating the output flags (--json / --plain / --null-delimited)
+//     into the C# tool's `format` parameter
+//
+// Examples:
+//
+//	find --name "Enemy*"               (scene)
+//	find --component Rigidbody         (scene)
+//	find Assets/                       (asset)
+//	find Assets/Prefabs/ --type Prefab (asset)
 func findCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	var components []string
 	var missing []string
@@ -67,8 +77,6 @@ func findCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Strip spurious positional args (find takes none).
-	delete(params, "args")
 
 	if len(components) > 0 {
 		params["component"] = components

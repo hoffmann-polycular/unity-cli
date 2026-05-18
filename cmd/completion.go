@@ -160,7 +160,7 @@ func computeCandidates(idx int, words []string, current string) []string {
 var topLevelCommands = []string{
 	"editor", "test", "exec", "ls", "find", "inspect", "get", "set",
 	"component", "select", "create", "delete", "cp", "mv", "reorder",
-	"find-asset", "prefab", "console", "menu", "screenshot", "reserialize",
+	"prefab", "console", "menu", "screenshot", "reserialize",
 	"profiler", "status", "list", "update", "version", "help", "completion",
 }
 
@@ -170,7 +170,7 @@ var subcommands = map[string][]string{
 	"component":  {"list", "add", "remove"},
 	"profiler":   {"hierarchy", "enable", "disable", "status", "clear"},
 	"completion": {"bash", "zsh", "fish", "powershell"},
-	"help":       {"editor", "ls", "find", "inspect", "get", "set", "component", "select", "create", "delete", "cp", "mv", "reorder", "find-asset", "prefab", "console", "menu", "exec", "screenshot", "reserialize", "profiler", "test", "status", "list", "update", "custom-tools", "setup"},
+	"help":       {"editor", "ls", "find", "inspect", "get", "set", "component", "select", "create", "delete", "cp", "mv", "reorder", "prefab", "console", "menu", "exec", "screenshot", "reserialize", "profiler", "test", "status", "list", "update", "custom-tools", "setup"},
 }
 
 var primitiveTypes = []string{
@@ -215,8 +215,7 @@ var globalFlags = []string{
 
 var commandFlags = map[string][]string{
 	"ls":         {"-r", "--recursive", "--components", "--json", "--plain", "--null-delimited"},
-	"find":       {"--name", "--regex", "--component", "--missing", "--tag", "--layer", "--prefab", "--has-overrides", "--active", "--inactive", "--json", "--plain", "--null-delimited"},
-	"find-asset": {"--type", "--label", "--path", "--area", "--json", "--plain", "--null-delimited"},
+	"find":       {"--name", "--regex", "--component", "--missing", "--tag", "--layer", "--prefab", "--has-overrides", "--active", "--inactive", "--type", "--label", "--area", "--json", "--plain", "--null-delimited"},
 	"inspect":    {"--overrides-only", "--json", "--plain"},
 	"get":        {"--source", "--json"},
 	"set":        {"--all", "--value", "--params"},
@@ -256,7 +255,7 @@ func flagValueCandidates(cmd, flag, current string) []string {
 	case "stacktrace":
 		return prefixFilter([]string{"none", "user", "full"}, current)
 	case "type":
-		if cmd == "find-asset" {
+		if cmd == "find" {
 			return prefixFilter(commonAssetTypes, current)
 		}
 		if cmd == "console" {
@@ -274,10 +273,6 @@ func flagValueCandidates(cmd, flag, current string) []string {
 		return queryUnity("layer", current)
 	case "prefab":
 		return queryUnity("asset", current)
-	case "path":
-		if cmd == "find-asset" {
-			return queryUnity("asset", current)
-		}
 	}
 	return nil
 }
@@ -292,6 +287,25 @@ func positionalCandidates(cmd string, idx int, words []string, current string) [
 	switch cmd {
 	case "ls", "inspect", "get", "delete", "select":
 		return queryUnity("scene", current)
+	case "find":
+		// Positional 0 narrows the search:
+		//   "Assets/…" / "Packages/…" → asset-database scope
+		//   "World/…" / etc.          → scene-hierarchy scope
+		// Offer assets when the prefix looks like an asset path, scene
+		// otherwise. Empty current word offers both via the union of
+		// asset roots + scene roots.
+		if posIdx == 0 {
+			if strings.HasPrefix(current, "Assets") || strings.HasPrefix(current, "Packages") {
+				return queryUnity("asset", current)
+			}
+			if current == "" {
+				combined := append([]string{}, queryUnity("asset", "")...)
+				combined = append(combined, queryUnity("scene", "")...)
+				return combined
+			}
+			return queryUnity("scene", current)
+		}
+		return nil
 	case "set":
 		// First positional is path; second is value (no completion).
 		if posIdx == 0 {
@@ -346,14 +360,10 @@ func positionalCandidates(cmd string, idx int, words []string, current string) [
 		case "open":
 			return queryUnity("asset", current)
 		}
-	case "find-asset":
-		// Bare positional is a name term — no completion.
 	case "reserialize":
 		return queryUnity("asset", current)
 	case "menu":
 		// Menu paths could be completed, but we don't expose an endpoint yet.
-	case "find":
-		// All filtering is by flag.
 	case "completion":
 		if posIdx == 0 {
 			return prefixFilter([]string{"bash", "zsh", "fish", "powershell"}, current)

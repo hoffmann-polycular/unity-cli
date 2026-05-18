@@ -41,7 +41,6 @@ tools (pipes, `jq`, `xargs`, `grep`, `awk`).
     - [cp](#cp)
     - [mv](#mv)
     - [reorder](#reorder)
-    - [find-asset](#find-asset)
     - [prefab](#prefab)
 - [Common Usage Examples](#common-usage-examples)
 - [Tips and Tricks](#tips-and-tricks)
@@ -516,7 +515,7 @@ unity-cli completion <bash|zsh|fish|powershell>
 **Static completions** (work without Unity running):
 - Top-level commands and subcommands
 - Flags per command (and per subcommand)
-- Known flag values (`--mode`, `--view`, `--stacktrace`, `--area`, `--sort`, `--type` for `find-asset`, …)
+- Known flag values (`--mode`, `--view`, `--stacktrace`, `--area`, `--sort`, `--type` for `find Assets/`, …)
 - Primitive types for `create`, common Unity component type names
 
 **Dynamic completions** (require a running Unity instance):
@@ -555,7 +554,7 @@ unity-cli completion powershell >> $PROFILE
 unity-cli ls World/<TAB>                # children of World
 unity-cli set World/Player:<TAB>        # components on Player
 unity-cli cp World/Player /<TAB>        # scene-root candidates for cp dst
-unity-cli find-asset --type <TAB>       # known asset types
+unity-cli find Assets/ --type <TAB>     # known asset types
 unity-cli prefab open Assets/<TAB>      # prefab assets
 ```
 
@@ -591,7 +590,7 @@ with `[UnityCliTool(Name = "my_name")]`. Parameters are declared via a nested
 full template.
 
 All planned commands below (`ls`, `find`, `inspect`, `get`, `set`,
-`component`, `select`, `create`, `delete`, `cp`, `mv`, `find-asset`,
+`component`, `select`, `create`, `delete`, `cp`, `mv`, `reorder`,
 `prefab`) will be implemented on top of this same mechanism — one
 `[UnityCliTool]` class per tool, plus Go-side wrappers where piping/polling
 ergonomics demand it.
@@ -632,32 +631,79 @@ unity-cli ls -r --plain | grep Enemy
 
 ✅ **Implemented**
 
-Search objects by name, component, tag, layer, or prefab source.
+Unified search command. The first positional argument determines the search
+domain *and* scope: an `Assets/` or `Packages/` prefix routes to the asset
+database; any other path narrows scene search to that GameObject's subtree;
+no positional searches all loaded scenes.
 
 ```
-unity-cli find [--name <glob>] [--component <type>] [--missing <type>]
-               [--tag <tag>] [--layer <layer>] [--prefab <assetpath>]
-               [--has-overrides] [--active|--inactive]
-               [--json|--plain|--null-delimited]
+unity-cli find [<path>] [filters] [--json|--plain|--null-delimited]
 ```
 
-**Options:**
+#### Scene mode
+
+```
+unity-cli find [<scene-path>] [--name <glob>] [--component <type>]
+                              [--missing <type>] [--tag <tag>] [--layer <layer>]
+                              [--prefab <assetpath>] [--has-overrides]
+                              [--active|--inactive]
+```
+
+When `<scene-path>` is supplied, the search is restricted to descendants of
+that GameObject (the GameObject itself is not included in results — only its
+descendants). Without a positional, all scene roots are searched.
+
 - `--name <glob>` — name glob match (e.g. `"Enemy*"`).
 - `--regex <regex>` — name regex match (e.g. `"Enemy_[1-5]"`).
-- `--component <type>` — only objects that have a component of this type.
-- `--missing <type>` — only objects that *lack* a component of this type.
+- `--component <type>` — only objects that have a component of this type. May repeat.
+- `--missing <type>` — only objects that *lack* a component of this type. May repeat.
 - `--tag <tag>` — only objects with this tag.
 - `--layer <layer>` — only objects on this layer.
 - `--prefab <assetpath>` — only instances of this prefab asset.
 - `--has-overrides` — only prefab instances with property or structural overrides.
 - `--active` / `--inactive` — filter by active state.
-- Flags are AND-combined. Multiple `--component` flags also AND-combine.
+- All flags AND-combine. Multiple `--component` flags also AND-combine.
+
+#### Asset mode (first positional starts with `Assets/` or `Packages/`)
+
+```
+unity-cli find Assets/[<subfolder/glob>] [--name <pattern>] [--type <type>]
+                                          [--label <label>] [--area <area>]
+```
+
+The path positional scopes the search:
+- `Assets/` — all assets
+- `Assets/Prefabs/` — restrict to that folder
+- `Assets/Prefabs/Enemy*` — path glob (wildcards trigger glob post-filter)
+- `Packages/` — package assets
+
+- `--name <pattern>` — partial filename match or glob (with `*`/`?`).
+- `--type <type>` — asset type filter (`Material`, `Mesh`, `Prefab`, `Texture2D`, …).
+- `--label <label>` — asset label filter.
+- `--area <all|assets|packages>` — search area (default: `all`).
 
 **Examples:**
 ```bash
+# Scene — all scenes
 unity-cli find --name "Enemy*"
 unity-cli find --component MeshRenderer --missing Collider
+unity-cli find --component Rigidbody --component AudioSource
 unity-cli find --prefab Assets/Prefabs/Enemy.prefab --has-overrides
+unity-cli find --component Light --plain | xargs -I{} unity-cli inspect {}:Light
+
+# Scene — restricted to a subtree
+unity-cli find World/Enemies --name "Boss*"
+unity-cli find World/UI --component Image
+unity-cli find World/Player --missing Collider --plain
+
+# Asset
+unity-cli find Assets/
+unity-cli find Assets/Prefabs/ --type Prefab
+unity-cli find Assets/Prefabs/Enemy* --type Prefab --plain
+unity-cli find Assets/ --name "Metal*" --type Material
+unity-cli find Assets/ --label Hero --json
+unity-cli find Assets/ --type Prefab --plain | xargs -I{} unity-cli inspect {}
+unity-cli find Packages/ --type Shader
 ```
 
 ---
@@ -1064,43 +1110,6 @@ unity-cli reorder World/Player:AudioSource --after Animator
 # Pin a script component to the top (just below Transform)
 unity-cli reorder World/Player:PlayerController --first
 ```
-
----
-
-### `find-asset`
-
-✅ **Implemented**
-
-Search the project asset database. Wraps Unity's `AssetDatabase.FindAssets`.
-
-```
-unity-cli find-asset [<name>] [--type <type>] [--label <label>]
-                     [--path <folder|glob>] [--area <all|assets|packages>]
-                     [--json|--plain|--null-delimited]
-```
-
-**Options:**
-- `<name>` — bare term is a partial filename match (Unity's default name
-  matching). Add `*` or `?` to switch to glob mode automatically.
-- `--type <type>` — asset type filter (Unity's `t:`); e.g. `Material`,
-  `Mesh`, `Prefab`, `ScriptableObject`, `Texture2D`.
-- `--label <label>` — asset label filter (Unity's `l:`).
-- `--path <spec>` — folder restriction. Plain folders flow into
-  `searchInFolders`; path globs (with `*`/`?`) extract the folder prefix
-  for `searchInFolders` and post-filter the full asset path.
-- `--area <area>` — search area: `all` (default), `assets`, or `packages`
-  (Unity's `a:`).
-
-**Examples:**
-```bash
-unity-cli find-asset "Metal"
-unity-cli find-asset "Metal*" --type Material
-unity-cli find-asset --type Prefab --path Assets/Enemies
-unity-cli find-asset --path "Assets/**/Red*.mat" --json
-```
-
-`set` also accepts `--find <name> --type <type>` inline as a shortcut when
-the target type is known from the destination property.
 
 ---
 
