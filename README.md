@@ -4,7 +4,7 @@
 
 > Control Unity Editor from the command line. Built for AI agents, works with anything.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 **No server to run. No config to write. No process to manage. Just type a command.**
 
@@ -485,6 +485,14 @@ Created by **DevBookOfArray**
 [![YouTube](https://img.shields.io/badge/YouTube-DevBookOfArray-red?logo=youtube&logoColor=white)](https://www.youtube.com/@DevBookOfArray)
 [![GitHub](https://img.shields.io/badge/GitHub-youngwoocho02-181717?logo=github)](https://github.com/youngwoocho02)
 
+And
+
+Polycular GmbH
+
+[Website](https://www.polycular.com/)
+
 ## License
 
-MIT
+GPLv3 and MIT
+
+Commercial license available for enterprises and closed-source projects. Contact info@polycular.com for details.
