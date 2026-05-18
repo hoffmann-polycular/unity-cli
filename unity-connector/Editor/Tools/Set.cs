@@ -83,7 +83,7 @@ namespace UnityCliConnector.Tools
 				return new ErrorResponse("set requires --value (or a second positional argument; piping is also accepted).");
 
 			var parseResult = PathParser.Parse(path);
-			if (!parseResult.IsSuccess) return new ErrorResponse(parseResult.ErrorMessage);
+			if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
 			var parsed = parseResult.Value;
 
 			if (!parsed.Component.IsPresent)
@@ -97,13 +97,13 @@ namespace UnityCliConnector.Tools
 			if (broadcast)
 			{
 				var allRes = PathResolver.ResolveGameObjectsAll(parsed);
-				if (!allRes.IsSuccess) return new ErrorResponse(allRes.ErrorMessage);
+				if (!allRes.IsSuccess) return ErrorResponse.FromResult(allRes);
 				targets = allRes.Value;
 			}
 			else
 			{
 				var goRes = PathResolver.ResolveGameObject(parsed);
-				if (!goRes.IsSuccess) return new ErrorResponse(goRes.ErrorMessage);
+				if (!goRes.IsSuccess) return ErrorResponse.FromResult(goRes);
 				targets = new List<GameObject> { goRes.Value };
 			}
 

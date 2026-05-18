@@ -91,10 +91,10 @@ namespace UnityCliConnector.Tools
 				return new ErrorResponse($"component {action} requires a GameObject path.");
 
 			var parseResult = PathParser.Parse(path);
-			if (!parseResult.IsSuccess) return new ErrorResponse(parseResult.ErrorMessage);
+			if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
 
 			var goResult = PathResolver.ResolveGameObject(parseResult.Value);
-			if (!goResult.IsSuccess) return new ErrorResponse(goResult.ErrorMessage);
+			if (!goResult.IsSuccess) return ErrorResponse.FromResult(goResult);
 			var go = goResult.Value;
 
 			return action switch
@@ -175,7 +175,7 @@ namespace UnityCliConnector.Tools
 
 			// Strip any [n] the user might have supplied — meaningless for add.
 			var compRefRes = PathParser.ParseComponentSpec(typeArg);
-			if (!compRefRes.IsSuccess) return new ErrorResponse(compRefRes.ErrorMessage);
+			if (!compRefRes.IsSuccess) return ErrorResponse.FromResult(compRefRes);
 			var typeName = compRefRes.Value.TypeName;
 
 			var type = TypeResolver.ResolveComponentType(typeName);
@@ -224,7 +224,7 @@ namespace UnityCliConnector.Tools
 				return new ErrorResponse("component remove requires a type name (use Type[n] for duplicates).");
 
 			var compRefRes = PathParser.ParseComponentSpec(typeArg);
-			if (!compRefRes.IsSuccess) return new ErrorResponse(compRefRes.ErrorMessage);
+			if (!compRefRes.IsSuccess) return ErrorResponse.FromResult(compRefRes);
 			var compRef = compRefRes.Value;
 
 			var type = TypeResolver.ResolveComponentType(compRef.TypeName);
@@ -236,7 +236,7 @@ namespace UnityCliConnector.Tools
 				return new ErrorResponse($"Cannot remove {type.Name} — it's required for every GameObject.");
 
 			var resolveRes = PathResolver.ResolveComponent(go, compRef);
-			if (!resolveRes.IsSuccess) return new ErrorResponse(resolveRes.ErrorMessage);
+			if (!resolveRes.IsSuccess) return ErrorResponse.FromResult(resolveRes);
 			var component = resolveRes.Value;
 
 			var goPath = PathResolver.GetCanonicalPath(go);

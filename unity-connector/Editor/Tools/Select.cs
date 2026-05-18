@@ -106,10 +106,10 @@ namespace UnityCliConnector.Tools
 				return new ErrorResponse("Path required (or --get / --clear).");
 
 			var parseResult = PathParser.Parse(path);
-			if (!parseResult.IsSuccess) return new ErrorResponse(parseResult.ErrorMessage);
+			if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
 
 			var goResult = PathResolver.ResolveGameObject(parseResult.Value);
-			if (!goResult.IsSuccess) return new ErrorResponse(goResult.ErrorMessage);
+			if (!goResult.IsSuccess) return ErrorResponse.FromResult(goResult);
 			var go = goResult.Value;
 			var canonicalPath = PathResolver.GetCanonicalPath(go);
 

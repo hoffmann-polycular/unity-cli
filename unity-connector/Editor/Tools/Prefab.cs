@@ -302,11 +302,11 @@ namespace UnityCliConnector.Tools
 				return new ErrorResponse($"prefab {verb} requires a path (GameObject, GameObject:Component, or GameObject:Component.prop).");
 
 			var parseResult = PathParser.Parse(path);
-			if (!parseResult.IsSuccess) return new ErrorResponse(parseResult.ErrorMessage);
+			if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
 			var parsed = parseResult.Value;
 
 			var goResult = PathResolver.ResolveGameObject(parsed);
-			if (!goResult.IsSuccess) return new ErrorResponse(goResult.ErrorMessage);
+			if (!goResult.IsSuccess) return ErrorResponse.FromResult(goResult);
 			var go = goResult.Value;
 
 			var instanceRoot = PrefabUtility.GetNearestPrefabInstanceRoot(go);
@@ -337,7 +337,7 @@ namespace UnityCliConnector.Tools
 
 			// Component on GO required.
 			var compResult = PathResolver.ResolveComponent(go, parsed.Component);
-			if (!compResult.IsSuccess) return new ErrorResponse(compResult.ErrorMessage);
+			if (!compResult.IsSuccess) return ErrorResponse.FromResult(compResult);
 			var component = compResult.Value;
 
 			// Path with component but no property → object-level apply/revert.

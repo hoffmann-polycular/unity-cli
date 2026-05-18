@@ -70,7 +70,7 @@ namespace UnityCliConnector.Tools
 				return new ErrorResponse("get requires a path with :Component.property.");
 
 			var parseResult = PathParser.Parse(path);
-			if (!parseResult.IsSuccess) return new ErrorResponse(parseResult.ErrorMessage);
+			if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
 			var parsed = parseResult.Value;
 
 			if (!parsed.Component.IsPresent)
@@ -79,10 +79,10 @@ namespace UnityCliConnector.Tools
 				return new ErrorResponse("get requires a property — add '.propertyName' to the path.");
 
 			var goResult = PathResolver.ResolveGameObject(parsed);
-			if (!goResult.IsSuccess) return new ErrorResponse(goResult.ErrorMessage);
+			if (!goResult.IsSuccess) return ErrorResponse.FromResult(goResult);
 
 			var compResult = PathResolver.ResolveComponent(goResult.Value, parsed.Component);
-			if (!compResult.IsSuccess) return new ErrorResponse(compResult.ErrorMessage);
+			if (!compResult.IsSuccess) return ErrorResponse.FromResult(compResult);
 			var component = compResult.Value;
 
 			// --source: swap the live component for the prefab-source one and

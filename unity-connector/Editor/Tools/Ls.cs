@@ -73,10 +73,10 @@ namespace UnityCliConnector.Tools
             else
             {
                 var parseResult = PathParser.Parse(path);
-                if (!parseResult.IsSuccess) return new ErrorResponse(parseResult.ErrorMessage);
+                if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
 
                 var resolveResult = PathResolver.ResolveGameObject(parseResult.Value);
-                if (!resolveResult.IsSuccess) return new ErrorResponse(resolveResult.ErrorMessage);
+                if (!resolveResult.IsSuccess) return ErrorResponse.FromResult(resolveResult);
 
                 var parent = resolveResult.Value;
                 children = PathResolver.GetImmediateChildren(parent);

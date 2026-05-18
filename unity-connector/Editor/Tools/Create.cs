@@ -80,10 +80,10 @@ namespace UnityCliConnector.Tools
 
 			// Resolve parent GameObject.
 			var parseResult = PathParser.Parse(parentPath);
-			if (!parseResult.IsSuccess) return new ErrorResponse(parseResult.ErrorMessage);
+			if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
 
 			var parentRes = PathResolver.ResolveGameObject(parseResult.Value);
-			if (!parentRes.IsSuccess) return new ErrorResponse(parentRes.ErrorMessage);
+			if (!parentRes.IsSuccess) return ErrorResponse.FromResult(parentRes);
 			var parent = parentRes.Value;
 
 			GameObject created = null;

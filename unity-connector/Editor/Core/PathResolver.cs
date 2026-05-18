@@ -105,7 +105,7 @@ namespace UnityCliConnector
 				case PathKind.InstanceId:
 					var obj = EditorUtility.InstanceIDToObject(parsed.InstanceId);
 					if (obj == null)
-						return Result<GameObject>.Error($"No object with instance ID #{parsed.InstanceId}.");
+						return Result<GameObject>.Error($"No object with instance ID #{parsed.InstanceId}.", ErrorKind.NotFound);
 					if (obj is GameObject go) return Result<GameObject>.Success(go);
 					if (obj is Component c) return Result<GameObject>.Success(c.gameObject);
 					return Result<GameObject>.Error(
@@ -171,12 +171,12 @@ namespace UnityCliConnector
 				case PathKind.Scene:
 					{
 						if (parsed.Segments == null || parsed.Segments.Count == 0)
-							return Result<List<GameObject>>.Error("Scene path has no hierarchy segments.");
+							return Result<List<GameObject>>.Error("Scene path has no hierarchy segments.", ErrorKind.Usage);
 
 						var frontier = FilterByName(GetSceneRoots(), parsed.Segments[0]);
 						if (frontier.Count == 0)
 							return Result<List<GameObject>>.Error(
-								$"No root object matching '{parsed.Segments[0]}'.");
+								$"No root object matching '{parsed.Segments[0]}'.", ErrorKind.NotFound);
 
 						for (var i = 1; i < parsed.Segments.Count; i++)
 						{
@@ -186,7 +186,7 @@ namespace UnityCliConnector
 								next.AddRange(FilterByName(GetImmediateChildren(parent), seg));
 							if (next.Count == 0)
 								return Result<List<GameObject>>.Error(
-									$"No descendants matching '{seg}' beneath any candidate at depth {i}.");
+									$"No descendants matching '{seg}' beneath any candidate at depth {i}.", ErrorKind.NotFound);
 							frontier = next;
 						}
 
@@ -214,24 +214,24 @@ namespace UnityCliConnector
 
 			var type = TypeResolver.ResolveComponentType(compRef.TypeName);
 			if (type == null)
-				return Result<Component>.Error($"Unknown component type: '{compRef.TypeName}'.");
+				return Result<Component>.Error($"Unknown component type: '{compRef.TypeName}'.", ErrorKind.NotFound);
 
 			var comps = go.GetComponents(type);
 			if (comps == null || comps.Length == 0)
 				return Result<Component>.Error(
-					$"No {type.Name} on '{GetCanonicalPath(go)}'.");
+					$"No {type.Name} on '{GetCanonicalPath(go)}'.", ErrorKind.NotFound);
 
 			if (compRef.Index.HasValue)
 			{
 				if (compRef.Index.Value < 0 || compRef.Index.Value >= comps.Length)
 					return Result<Component>.Error(
-						$"Index [{compRef.Index.Value}] out of range (have {comps.Length} {type.Name}).");
+						$"Index [{compRef.Index.Value}] out of range (have {comps.Length} {type.Name}).", ErrorKind.NotFound);
 				return Result<Component>.Success(comps[compRef.Index.Value]);
 			}
 
 			if (comps.Length > 1)
 				return Result<Component>.Error(
-					$"Ambiguous component '{type.Name}' on '{GetCanonicalPath(go)}' ({comps.Length} present). Use '{type.Name}[n]'.");
+					$"Ambiguous component '{type.Name}' on '{GetCanonicalPath(go)}' ({comps.Length} present). Use '{type.Name}[n]'.", ErrorKind.Ambiguous);
 
 			return Result<Component>.Success(comps[0]);
 		}
@@ -329,7 +329,7 @@ namespace UnityCliConnector
 			// First segment matches against scene roots.
 			var candidates = FilterByName(GetSceneRoots(), parsed.Segments[0]);
 			if (candidates.Count == 0)
-				return Result<GameObject>.Error($"No root object matching '{parsed.Segments[0]}'.");
+				return Result<GameObject>.Error($"No root object matching '{parsed.Segments[0]}'.", ErrorKind.NotFound);
 			if (candidates.Count > 1)
 				return AmbiguityError(candidates, parsed, 0);
 
@@ -342,7 +342,7 @@ namespace UnityCliConnector
 				candidates = FilterByName(children, seg);
 				if (candidates.Count == 0)
 					return Result<GameObject>.Error(
-						$"No child matching '{seg}' under '{GetCanonicalPath(current)}'.");
+						$"No child matching '{seg}' under '{GetCanonicalPath(current)}'.", ErrorKind.NotFound);
 				if (candidates.Count > 1)
 					return AmbiguityError(candidates, parsed, i);
 				current = candidates[0];
@@ -371,7 +371,7 @@ namespace UnityCliConnector
 			sb.Append($"Ambiguous path at segment {segmentIdx} ('{parsed.Segments[segmentIdx]}'). Candidates:");
 			foreach (var m in matches)
 				sb.Append('\n').Append("  ").Append(GetCanonicalPath(m));
-			return Result<GameObject>.Error(sb.ToString());
+			return Result<GameObject>.Error(sb.ToString(), ErrorKind.Ambiguous);
 		}
 
 		private static string BuildSegment(GameObject go)

@@ -10,6 +10,7 @@ import (
 	"os"
 
 	"github.com/youngwoocho02/unity-cli/cmd"
+	"github.com/youngwoocho02/unity-cli/internal/cli/exit"
 )
 
 var Version = "dev"
@@ -19,8 +20,16 @@ func init() {
 }
 
 func main() {
-	if err := cmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+	err := cmd.Execute()
+	if err == nil {
+		os.Exit(exit.OK)
 	}
+	if cliErr, ok := err.(*exit.CLIError); ok {
+		if cliErr.Msg != "" {
+			fmt.Fprintf(os.Stderr, "Error: %s\n", cliErr.Msg)
+		}
+		os.Exit(cliErr.Code)
+	}
+	fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	os.Exit(exit.Runtime)
 }

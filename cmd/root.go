@@ -41,6 +41,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/youngwoocho02/unity-cli/internal/cli/exit"
 	"github.com/youngwoocho02/unity-cli/internal/client"
 )
 
@@ -64,8 +65,7 @@ func Execute() error {
 	args := os.Args[1:]
 	flagArgs, cmdArgs := splitArgs(args)
 	if err := flag.CommandLine.Parse(flagArgs); err != nil {
-		fmt.Fprintf(os.Stderr, "flag parse error: %v\n", err)
-		os.Exit(1)
+		return exit.New(exit.Usage, "flag parse error: %v", err)
 	}
 
 	if len(cmdArgs) == 0 {
@@ -104,16 +104,16 @@ func Execute() error {
 	case "status":
 		inst, err := discoverStatusInstance(flagProject, flagPort)
 		if err != nil {
-			return err
+			return exit.Wrap(exit.Unreach, err)
 		}
 		statusErr := statusCmd(inst)
 		printUpdateNotice()
-		return statusErr
+		return exit.Wrap(exit.Runtime, statusErr)
 	}
 
 	inst, err := client.DiscoverInstance(flagProject, flagPort)
 	if err != nil {
-		return err
+		return exit.Wrap(exit.Unreach, err)
 	}
 
 	targetProject := flagProject
@@ -130,22 +130,26 @@ func Execute() error {
 
 	alive, err := waitForAlive(resolve, flagTimeout)
 	if err != nil {
-		return err
+		return exit.Wrap(exit.Unreach, err)
 	}
 	if err := checkConnectorVersion(alive, Version, flagIgnoreVersionMismatch); err != nil {
-		return err
+		return exit.Wrap(exit.Runtime, err)
 	}
 
 	timeout := flagTimeout
 	send := func(command string, params interface{}) (*client.CommandResponse, error) {
 		inst, err := resolve()
 		if err != nil {
-			return nil, err
+			return nil, exit.Wrap(exit.Unreach, err)
 		}
 		if err := checkConnectorVersion(inst, Version, flagIgnoreVersionMismatch); err != nil {
-			return nil, err
+			return nil, exit.Wrap(exit.Runtime, err)
 		}
-		return client.Send(inst, command, params, timeout)
+		resp, err := client.Send(inst, command, params, timeout)
+		if err != nil {
+			return nil, exit.Wrap(exit.Unreach, err)
+		}
+		return resp, nil
 	}
 
 	var resp *client.CommandResponse
@@ -156,13 +160,17 @@ func Execute() error {
 	case "test":
 		currentInst, resolveErr := resolve()
 		if resolveErr != nil {
-			return resolveErr
+			return exit.Wrap(exit.Unreach, resolveErr)
 		}
 		if err := checkConnectorVersion(currentInst, Version, flagIgnoreVersionMismatch); err != nil {
-			return err
+			return exit.Wrap(exit.Runtime, err)
 		}
 		testSend := func(command string, params interface{}) (*client.CommandResponse, error) {
-			return client.Send(currentInst, command, params, 0)
+			r, sendErr := client.Send(currentInst, command, params, 0)
+			if sendErr != nil {
+				return nil, exit.Wrap(exit.Unreach, sendErr)
+			}
+			return r, nil
 		}
 		resp, err = testCmd(subArgs, testSend, currentInst.Port)
 	case "exec":
@@ -215,7 +223,13 @@ func Execute() error {
 	printUpdateNotice()
 
 	if !resp.Success {
-		os.Exit(1)
+		code := exit.FromKind(resp.ErrorKind)
+		if resp.ErrorKind == "" {
+			code = exit.ClassifyMessage(resp.Message)
+		}
+		// printResponse already wrote the error to stderr; emit a code-only
+		// CLIError so main() does not duplicate it.
+		return &exit.CLIError{Code: code, Msg: ""}
 	}
 
 	return nil

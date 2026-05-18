@@ -67,7 +67,7 @@ namespace UnityCliConnector.Tools
 				return new ErrorResponse("delete requires a path, or pass paths on stdin for batch deletion.");
 
 			var parseResult = PathParser.Parse(singlePath);
-			if (!parseResult.IsSuccess) return new ErrorResponse(parseResult.ErrorMessage);
+			if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
 			var parsed = parseResult.Value;
 
 			var deleted = new List<string>();
@@ -76,14 +76,14 @@ namespace UnityCliConnector.Tools
 			if (all)
 			{
 				var allRes = PathResolver.ResolveGameObjectsAll(parsed);
-				if (!allRes.IsSuccess) return new ErrorResponse(allRes.ErrorMessage);
+				if (!allRes.IsSuccess) return ErrorResponse.FromResult(allRes);
 				foreach (var go in allRes.Value)
 					DoDeleteOne(go, deleted, errors);
 			}
 			else
 			{
 				var goRes = PathResolver.ResolveGameObject(parsed);
-				if (!goRes.IsSuccess) return new ErrorResponse(goRes.ErrorMessage);
+				if (!goRes.IsSuccess) return ErrorResponse.FromResult(goRes);
 				DoDeleteOne(goRes.Value, deleted, errors);
 			}
 

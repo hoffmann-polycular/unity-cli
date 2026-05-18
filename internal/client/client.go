@@ -37,10 +37,13 @@ type CommandRequest struct {
 
 // CommandResponse is the JSON body returned by Unity.
 // Data is raw JSON so callers can unmarshal into any shape.
+// ErrorKind is set by the connector on failure to classify the error
+// ("ambiguous", "not_found", "busy", "usage", "runtime"). Empty on success.
 type CommandResponse struct {
-	Success bool            `json:"success"`
-	Message string          `json:"message"`
-	Data    json.RawMessage `json:"data,omitempty"`
+	Success   bool            `json:"success"`
+	Message   string          `json:"message"`
+	Data      json.RawMessage `json:"data,omitempty"`
+	ErrorKind string          `json:"errorKind,omitempty"`
 }
 
 // isProcessDead returns true only when the process is confirmed to not exist.

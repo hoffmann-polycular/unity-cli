@@ -47,7 +47,7 @@ namespace UnityCliConnector.TestRunner
 
             var modeResult = p.GetRequired("mode");
             if (!modeResult.IsSuccess)
-                return Task.FromResult<object>(new ErrorResponse(modeResult.ErrorMessage));
+                return Task.FromResult<object>(ErrorResponse.FromResult(modeResult));
 
             var modeStr = modeResult.Value.Trim();
             TestMode testMode;

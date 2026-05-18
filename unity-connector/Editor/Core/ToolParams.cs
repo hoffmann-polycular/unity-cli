@@ -71,15 +71,22 @@ namespace UnityCliConnector
         public bool IsSuccess { get; }
         public T Value { get; }
         public string ErrorMessage { get; }
+        // Optional errorKind tag (see ErrorKind in Response.cs) so callers
+        // can forward the classification into ErrorResponse without re-parsing
+        // the message.
+        public string ErrorKind { get; }
 
-        private Result(bool isSuccess, T value, string errorMessage)
+        private Result(bool isSuccess, T value, string errorMessage, string errorKind)
         {
             IsSuccess = isSuccess;
             Value = value;
             ErrorMessage = errorMessage;
+            ErrorKind = errorKind;
         }
 
-        public static Result<T> Success(T value) => new Result<T>(true, value, null);
-        public static Result<T> Error(string errorMessage) => new Result<T>(false, default, errorMessage);
+        public static Result<T> Success(T value) => new Result<T>(true, value, null, null);
+        public static Result<T> Error(string errorMessage) => new Result<T>(false, default, errorMessage, null);
+        public static Result<T> Error(string errorMessage, string errorKind)
+            => new Result<T>(false, default, errorMessage, errorKind);
     }
 }

@@ -204,9 +204,9 @@ namespace UnityCliConnector.Tools
 			if (!string.IsNullOrEmpty(scopePath))
 			{
 				var parsedScope = PathParser.Parse(scopePath);
-				if (!parsedScope.IsSuccess) return new ErrorResponse(parsedScope.ErrorMessage);
+				if (!parsedScope.IsSuccess) return ErrorResponse.FromResult(parsedScope);
 				var scopeRes = PathResolver.ResolveGameObject(parsedScope.Value);
-				if (!scopeRes.IsSuccess) return new ErrorResponse(scopeRes.ErrorMessage);
+				if (!scopeRes.IsSuccess) return ErrorResponse.FromResult(scopeRes);
 				roots = PathResolver.GetImmediateChildren(scopeRes.Value);
 			}
 			else

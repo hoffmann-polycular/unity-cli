@@ -65,13 +65,13 @@ namespace UnityCliConnector.Tools
 				return new ErrorResponse("mv requires a destination path.");
 
 			var srcParse = PathParser.Parse(srcArg);
-			if (!srcParse.IsSuccess) return new ErrorResponse(srcParse.ErrorMessage);
+			if (!srcParse.IsSuccess) return ErrorResponse.FromResult(srcParse);
 			var srcRes = PathResolver.ResolveGameObject(srcParse.Value);
-			if (!srcRes.IsSuccess) return new ErrorResponse(srcRes.ErrorMessage);
+			if (!srcRes.IsSuccess) return ErrorResponse.FromResult(srcRes);
 			var src = srcRes.Value;
 
 			var dstSplit = MoveCopyPath.Split(dstArg, src.name);
-			if (!dstSplit.IsSuccess) return new ErrorResponse(dstSplit.ErrorMessage);
+			if (!dstSplit.IsSuccess) return ErrorResponse.FromResult(dstSplit);
 			var (parentPath, newName) = dstSplit.Value;
 
 			GameObject parent = null;
@@ -80,9 +80,9 @@ namespace UnityCliConnector.Tools
 			if (!MoveCopyPath.IsSceneRoot(parentPath))
 			{
 				var parentParse = PathParser.Parse(parentPath);
-				if (!parentParse.IsSuccess) return new ErrorResponse(parentParse.ErrorMessage);
+				if (!parentParse.IsSuccess) return ErrorResponse.FromResult(parentParse);
 				var parentRes = PathResolver.ResolveGameObject(parentParse.Value);
-				if (!parentRes.IsSuccess) return new ErrorResponse(parentRes.ErrorMessage);
+				if (!parentRes.IsSuccess) return ErrorResponse.FromResult(parentRes);
 				parent = parentRes.Value;
 				parentT = parent.transform;
 				parentDisplay = PathResolver.GetCanonicalPath(parent);

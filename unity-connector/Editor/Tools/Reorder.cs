@@ -90,15 +90,15 @@ namespace UnityCliConnector.Tools
 				return new ErrorResponse("reorder requires a target path.");
 
 			var parseResult = PathParser.Parse(pathArg);
-			if (!parseResult.IsSuccess) return new ErrorResponse(parseResult.ErrorMessage);
+			if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
 			var parsed = parseResult.Value;
 
 			var goRes = PathResolver.ResolveGameObject(parsed);
-			if (!goRes.IsSuccess) return new ErrorResponse(goRes.ErrorMessage);
+			if (!goRes.IsSuccess) return ErrorResponse.FromResult(goRes);
 			var go = goRes.Value;
 
 			var op = ResolveOp(p);
-			if (!op.IsSuccess) return new ErrorResponse(op.ErrorMessage);
+			if (!op.IsSuccess) return ErrorResponse.FromResult(op);
 
 			if (parsed.Component.IsPresent)
 				return ReorderComponent(go, parsed.Component, op.Value);
@@ -121,7 +121,7 @@ namespace UnityCliConnector.Tools
 				return new ErrorResponse("Could not locate target among its siblings.");
 
 			var target = ResolveTargetIndex(op, oldIndex, count, name => FindIndexByName(siblings, name));
-			if (!target.IsSuccess) return new ErrorResponse(target.ErrorMessage);
+			if (!target.IsSuccess) return ErrorResponse.FromResult(target);
 			var newIndex = target.Value;
 
 			if (newIndex == oldIndex)
@@ -154,7 +154,7 @@ namespace UnityCliConnector.Tools
 		private static object ReorderComponent(GameObject go, ComponentRef compRef, Op op)
 		{
 			var compResolve = PathResolver.ResolveComponent(go, compRef);
-			if (!compResolve.IsSuccess) return new ErrorResponse(compResolve.ErrorMessage);
+			if (!compResolve.IsSuccess) return ErrorResponse.FromResult(compResolve);
 			var component = compResolve.Value;
 
 			if (component is Transform)
@@ -172,7 +172,7 @@ namespace UnityCliConnector.Tools
 			var count = components.Length;
 
 			var target = ResolveTargetIndex(op, oldIndex, count, name => FindComponentIndexByName(components, name));
-			if (!target.IsSuccess) return new ErrorResponse(target.ErrorMessage);
+			if (!target.IsSuccess) return ErrorResponse.FromResult(target);
 			var newIndex = target.Value;
 
 			// Transform pins index 0; any move target lower is bumped to 1.

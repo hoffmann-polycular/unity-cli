@@ -66,11 +66,11 @@ namespace UnityCliConnector.Tools
 				return new ErrorResponse("inspect requires a path (GameObject, Component, or property).");
 
 			var parseResult = PathParser.Parse(path);
-			if (!parseResult.IsSuccess) return new ErrorResponse(parseResult.ErrorMessage);
+			if (!parseResult.IsSuccess) return ErrorResponse.FromResult(parseResult);
 			var parsed = parseResult.Value;
 
 			var goResult = PathResolver.ResolveGameObject(parsed);
-			if (!goResult.IsSuccess) return new ErrorResponse(goResult.ErrorMessage);
+			if (!goResult.IsSuccess) return ErrorResponse.FromResult(goResult);
 			var go = goResult.Value;
 
 			// No component → GameObject view.
@@ -78,7 +78,7 @@ namespace UnityCliConnector.Tools
 				return RenderGameObject(go, overridesOnly, format);
 
 			var compResult = PathResolver.ResolveComponent(go, parsed.Component);
-			if (!compResult.IsSuccess) return new ErrorResponse(compResult.ErrorMessage);
+			if (!compResult.IsSuccess) return ErrorResponse.FromResult(compResult);
 			var component = compResult.Value;
 
 			// Component with no properties → full component dump.
