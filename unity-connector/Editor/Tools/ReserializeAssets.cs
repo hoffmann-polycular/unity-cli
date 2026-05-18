@@ -1,3 +1,8 @@
+// MIT Copyright (c) 2025 DevBookOfArray
+// See /LICENSE-MIT for the full MIT license text.
+
+
+
 using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
