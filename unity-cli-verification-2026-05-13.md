@@ -157,7 +157,7 @@ the output with the asset path, not the in-memory GameObject path.
 
 ---
 
-### 8. `set` response is verbose JSON dict by default for multi-target
+### 8. `set` response is verbose JSON dict by default for multi-target ✅ FIXED
 
 A simple bulk `set :GameObject.activeSelf false | xargs` on 50 objects
 dumps 250+ lines of JSON to stdout. The only useful summary is "applied N,

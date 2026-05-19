@@ -76,7 +76,8 @@ namespace UnityCliConnector.Tools
 					: args[args.Count - 1];
 				var pathList = new JArray();
 				for (var i = 0; i < args.Count - 1; i++) pathList.Add(args[i]);
-				return SetMulti(pathList, valueTok);
+				var multiFormat = (p.Get("format") ?? "plain").ToLowerInvariant();
+				return SetMulti(pathList, valueTok, multiFormat);
 			}
 
 			// Positional form: `set <path> <value>` → args = [path, value]
@@ -196,26 +197,70 @@ namespace UnityCliConnector.Tools
 				return new ErrorResponse(
 					errors.Count == 1 ? errors[0] : $"set failed for all {targets.Count} target(s):\n  " + string.Join("\n  ", errors));
 
-			// Single-target keeps the simple shape; multi-target wraps the
-			// list so callers can iterate. Mixed success/failure surfaces as
-			// SuccessResponse with a partial-failure message.
-			if (applied.Count == 1 && targets.Count == 1)
+			var format = (p.Get("format") ?? "plain").ToLowerInvariant();
+			return RenderSetResult(applied, errors, format);
+		}
+
+		// Shared response shaping for the selection-fan-out path and SetMulti.
+		// Plain (default): one `path:Component.prop = value` line per applied
+		// target — pipe-friendly summary. JSON: structured {applied, errors}
+		// for tooling.
+		private static object RenderSetResult(List<object> applied, List<string> errors, string format)
+		{
+			if (format == "json")
 			{
-				var single = (Dictionary<string, object>)applied[0];
-				return new SuccessResponse(
-					$"{single["path"]}:{single["component"]}.{single["property"]} = {Describe(single["newValue"])}",
-					single);
+				// Single-target --json keeps the legacy scalar shape (just the
+				// per-target record) so tooling that expects `.path` /
+				// `.newValue` at the top level doesn't break. Multi wraps.
+				if (applied.Count == 1 && errors.Count == 0)
+				{
+					var only = (Dictionary<string, object>)applied[0];
+					var path = only.TryGetValue("path", out var pv) ? pv?.ToString() : "";
+					var comp = only.TryGetValue("component", out var cv) ? cv?.ToString() : "";
+					var prop = only.TryGetValue("property", out var pp) ? pp?.ToString() : "";
+					var nv = only.TryGetValue("newValue", out var n) ? n : null;
+					return new SuccessResponse(
+						$"{path}:{comp}.{prop} = {Describe(nv)}", only);
+				}
+
+				var message = errors.Count == 0
+					? $"set applied to {applied.Count} object(s)."
+					: $"set applied to {applied.Count} object(s); {errors.Count} failed.";
+				var resp = new SuccessResponse(message, new Dictionary<string, object>
+				{
+					["applied"] = applied,
+					["errors"] = errors,
+				});
+				if (errors.Count > 0)
+				{
+					resp.partialFailure = true;
+					resp.stderr = string.Join("\n", errors);
+				}
+				return resp;
 			}
 
-			var message = errors.Count == 0
-				? $"set applied to {applied.Count} object(s)."
-				: $"set applied to {applied.Count} object(s); {errors.Count} failed.";
-
-			return new SuccessResponse(message, new Dictionary<string, object>
+			var lines = new List<string>(applied.Count);
+			foreach (var entry in applied)
 			{
-				["applied"] = applied,
-				["errors"] = errors,
-			});
+				if (entry is Dictionary<string, object> dict)
+				{
+					var path = dict.TryGetValue("path", out var pv) ? pv?.ToString() : "";
+					var comp = dict.TryGetValue("component", out var cv) ? cv?.ToString() : "";
+					var prop = dict.TryGetValue("property", out var pp) ? pp?.ToString() : "";
+					var nv = dict.TryGetValue("newValue", out var n) ? n : null;
+					lines.Add($"{path}:{comp}.{prop} = {Describe(nv)}");
+				}
+			}
+			var plain = string.Join("\n", lines);
+			var plainResp = new SuccessResponse(
+				applied.Count == 1 ? lines[0] : $"set applied to {applied.Count} object(s).",
+				plain);
+			if (errors.Count > 0)
+			{
+				plainResp.partialFailure = true;
+				plainResp.stderr = string.Join("\n", errors);
+			}
+			return plainResp;
 		}
 
 		// Multi-path entry: broadcast one value across N independent paths.
@@ -223,7 +268,7 @@ namespace UnityCliConnector.Tools
 		// the Go side appended the same suffix to every piped path, all the
 		// parsed components/properties will be identical, but that's fine —
 		// we iterate per-path uniformly). All writes share one Undo group.
-		private static object SetMulti(JArray paths, JToken rawValue)
+		private static object SetMulti(JArray paths, JToken rawValue, string format)
 		{
 			if (rawValue == null)
 				return new ErrorResponse("set requires a value.");
@@ -315,21 +360,7 @@ namespace UnityCliConnector.Tools
 				return new ErrorResponse(
 					errors.Count == 1 ? errors[0] : $"set failed for all {totalTargets} target(s):\n  " + string.Join("\n  ", errors));
 
-			var message = errors.Count == 0
-				? $"set applied to {applied.Count} object(s)."
-				: $"set applied to {applied.Count} object(s); {errors.Count} failed.";
-
-			var resp = new SuccessResponse(message, new Dictionary<string, object>
-			{
-				["applied"] = applied,
-				["errors"] = errors,
-			});
-			if (errors.Count > 0)
-			{
-				resp.partialFailure = true;
-				resp.stderr = string.Join("\n", errors);
-			}
-			return resp;
+			return RenderSetResult(applied, errors, format);
 		}
 
 		// Apply rawValue to a single (parsed, GameObject) pair. Mirrors the
