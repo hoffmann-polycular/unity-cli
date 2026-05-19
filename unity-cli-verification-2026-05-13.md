@@ -118,7 +118,7 @@ for the well-known C# accessors that resolve to a different SO name.
 
 ---
 
-### 6. Enum values shown as raw ints in `inspect`
+### 6. Enum values shown as raw ints in `inspect` ✅ FIXED
 
 ```
 $ unity-cli inspect Assets/.../SM_Prop_Sack_01.fbx:Importer

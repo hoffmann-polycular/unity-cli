@@ -62,7 +62,19 @@ namespace UnityCliConnector
 			if (prop == null) return null;
 			switch (prop.propertyType)
 			{
-				case SerializedPropertyType.Integer: return prop.intValue;
+				case SerializedPropertyType.Integer:
+				{
+					// Many serialized fields are typed as C# enums but Unity
+					// stores them as Integer at the SO layer (e.g.
+					// ModelImporter.materialImportMode →
+					// ModelImporterMaterialImportMode). The standard Enum
+					// case below only fires for fields Unity tags as enum at
+					// the SO level; this reflection probe catches the rest,
+					// so `inspect` shows "InPrefab" instead of "0".
+					var enumName = TryResolveEnumName(prop);
+					if (enumName != null) return enumName;
+					return prop.intValue;
+				}
 				case SerializedPropertyType.Boolean: return prop.boolValue;
 				case SerializedPropertyType.Float: return prop.floatValue;
 				case SerializedPropertyType.String: return prop.stringValue;
@@ -265,6 +277,118 @@ namespace UnityCliConnector
 				["name"] = o.name,
 				["instanceId"] = o.GetInstanceID(),
 			};
+		}
+
+		// Returns the human-readable enum-value name when an SO-Integer
+		// property is backed by a C# enum field; null otherwise. Walks the
+		// target type via reflection along prop.propertyPath, matching
+		// `m_Name` ↔ `name` casing tricks Unity's serializer uses.
+		private static string TryResolveEnumName(SerializedProperty prop)
+		{
+			try
+			{
+				var target = prop.serializedObject?.targetObject;
+				if (target == null) return null;
+				var fieldType = ResolveFieldType(target.GetType(), prop.propertyPath);
+				if (fieldType == null || !fieldType.IsEnum) return null;
+
+				// Long-keyed Flags enums need flags-formatting; the standard
+				// `Enum.GetName` returns null for combinations. Format with
+				// Enum.ToObject covers both single and flags cases.
+				var enumVal = System.Enum.ToObject(fieldType, prop.intValue);
+				return enumVal?.ToString();
+			}
+			catch
+			{
+				return null;
+			}
+		}
+
+		// Walks a Unity-serialised property path against a C# type to find
+		// the field's declared type. Handles plain field names, `m_` prefix
+		// folding, and array-element syntax (`Array.data[idx]`).
+		//
+		// Falls back to C# property lookup when a field isn't found — many
+		// Unity types (especially AssetImporter subclasses) expose
+		// serialized settings only as typed C# properties; the actual data
+		// lives in native code with no reflectable backing field. The
+		// SerializedObject layer reports those as Integer; reading the
+		// property's return type tells us they're really enums.
+		private static System.Type ResolveFieldType(System.Type type, string propertyPath)
+		{
+			if (type == null || string.IsNullOrEmpty(propertyPath)) return null;
+			var bf = System.Reflection.BindingFlags.Instance
+				| System.Reflection.BindingFlags.Public
+				| System.Reflection.BindingFlags.NonPublic;
+
+			var current = type;
+			var segments = propertyPath.Split('.');
+			for (var i = 0; i < segments.Length; i++)
+			{
+				var seg = segments[i];
+				if (current == null) return null;
+
+				// `Array.data[idx]` — when stepping into an array element,
+				// pull the element type and skip the `data[idx]` segment.
+				if (seg == "Array" && i + 1 < segments.Length
+					&& segments[i + 1].StartsWith("data[", System.StringComparison.Ordinal))
+				{
+					if (current.IsArray) current = current.GetElementType();
+					else if (current.IsGenericType) current = current.GetGenericArguments()[0];
+					else return null;
+					i++; // consume `data[idx]`
+					continue;
+				}
+
+				var memberType = FindMemberType(current, seg, bf);
+				if (memberType == null) return null;
+				current = memberType;
+			}
+			return current;
+		}
+
+		private static System.Type FindMemberType(
+			System.Type t, string name, System.Reflection.BindingFlags bf)
+		{
+			// Try field first (most common — direct SO field name).
+			// Then `m_` ↔ camelCase folding.
+			// Then C# property (covers native-backed importer settings:
+			// ModelImporter.materialImportMode etc. have no field but the
+			// public property is typed as the enum).
+			for (var cur = t; cur != null && cur != typeof(object); cur = cur.BaseType)
+			{
+				var f = cur.GetField(name, bf);
+				if (f != null) return f.FieldType;
+
+				string alt = null;
+				if (name.StartsWith("m_", System.StringComparison.Ordinal) && name.Length > 2)
+				{
+					// `m_MaterialImportMode` → `materialImportMode`
+					alt = char.ToLowerInvariant(name[2]) + name.Substring(3);
+				}
+				else if (name.Length > 0)
+				{
+					// `materialImportMode` → `m_MaterialImportMode`
+					alt = "m_" + char.ToUpperInvariant(name[0]) + name.Substring(1);
+				}
+				if (alt != null)
+				{
+					f = cur.GetField(alt, bf);
+					if (f != null) return f.FieldType;
+				}
+
+				// Property lookup: try the original name and the de-prefixed
+				// camelCase form. Properties are public in Unity's API
+				// surface, so the public binding flag suffices.
+				var pi = cur.GetProperty(name, bf);
+				if (pi != null && pi.GetIndexParameters().Length == 0) return pi.PropertyType;
+				if (alt != null && !alt.StartsWith("m_", System.StringComparison.Ordinal))
+				{
+					pi = cur.GetProperty(alt, bf);
+					if (pi != null && pi.GetIndexParameters().Length == 0) return pi.PropertyType;
+				}
+			}
+			return null;
 		}
 	}
 }
