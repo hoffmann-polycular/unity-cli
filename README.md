@@ -1,7 +1,5 @@
 # unity-cli
 
-[English](README.md) | [Korean](README.ko.md)
-
 > Treat the Unity Editor like a filesystem. Inspect scenes, mutate objects, manage prefabs and assets — all from the terminal, composable with standard Unix tools.
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
