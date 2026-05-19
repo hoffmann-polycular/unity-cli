@@ -168,7 +168,7 @@ mode, matching `get`. JSON via `--json` for tooling.
 
 ## Minor
 
-### 9. `unity-cli help` is 207 lines
+### 9. `unity-cli help` is 207 lines ✅ FIXED
 
 Single long help dump. Useful in `less` but overwhelming on first contact.
 Consider splitting into a short "common commands" overview + `help <topic>`

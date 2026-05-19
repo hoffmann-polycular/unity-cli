@@ -404,213 +404,88 @@ func splitArgs(args []string) (flags, commands []string) {
 func printHelp() {
 	fmt.Print(`unity-cli ` + Version + ` — Control Unity Editor from the command line
 
-Usage: unity-cli <command> [subcommand] [options]
+Usage:  unity-cli <command> [args...]
+        unity-cli help <command>      detailed help for one command
 
-Editor Control:
-  editor play [--wait]          Enter play mode (--wait blocks until fully entered)
-  editor stop                   Exit play mode
-  editor pause                  Toggle pause/resume (play mode only)
-  editor refresh [--force]      Refresh asset database (blocked in play mode unless forced)
-  editor refresh --compile      Recompile scripts and wait until done
+Path grammar
+  bare | ./X        child of each selected object
+  .                 the selection itself
+  ../X              one level up from selection
+  /World/Player     absolute Hierarchy path (across every loaded scene)
+  Assets/Foo.prefab        asset on disk
+  Assets/Foo.prefab//Hat   sub-object inside the asset
+  ProjectSettings/Physics.gravity      project setting
+  :GameObject.name | :Importer.x       virtual components on a target
+  #14352                   pinned instance ID
 
-Path Grammar (v3):
-  Selection IS the working directory. Paths fan out across multi-selection.
-    bare / ./X       child of each selected object
-    .                the selection itself
-    ..               parent of selection (../.. for grandparent, etc.)
-    /World/Player    absolute Hierarchy path (root of every loaded scene + prefab stage)
-    Assets/Foo.prefab            asset
-    Assets/Foo.prefab//Hat       sub-object inside an asset
-    ProjectSettings/Physics.gravity   project setting
-    #14352                        instance ID
+Selection is the working directory. Paths fan out across multi-selection.
 
-Scene:
-  ls                            List Hierarchy roots (matches the Hierarchy window)
-  ls .                          List children of the current selection
-  ls /World/Player              List children of an absolute path
-  ls -R <path>                  Recurse into descendants
-  ls --components <path>        Include component types per object
-  ls --json | --plain           Structured / pipe-friendly output
-  find --name "Enemy*"          Search by name glob across loaded scenes
-  find <path> --name "..."      Restrict scene search to a subtree (path may fan out)
-  find --component Rigidbody    Require a component (may repeat)
-  find --missing Collider       Exclude by component (may repeat)
-  find --tag X --layer Y        Tag / layer filters
-  find --prefab <asset>         Instances of a specific prefab asset
-  find --has-overrides          Only prefab instances with overrides
-  find Assets/                  Search asset database (path prefix = asset mode)
-  find Assets/Prefabs/ --type Prefab  Asset search with type filter
-  inspect <path>                Dump GameObject + components (Inspector view)
-  inspect :Component            Show selection's component (selection-anchored)
-  inspect <path>:Comp.prop      Show a single property value
-  inspect --overrides-only      Trim to prefab-overridden values
-  inspect ProjectSettings/Physics    Inspect a Project Settings group
-  get <path>:Comp.prop          Read one property value (scripting-friendly)
-  get :Rigidbody.mass           Read property on every selected object (fan-out)
-  get --source                  Read prefab source value, ignoring overrides
-  get ProjectSettings/Physics.gravity   Read a project setting
-  set <path>:Comp.prop <value>  Write one property value (registers Undo)
-  set :Rigidbody.mass 100       Broadcast to every selected object (fan-out is default)
-  set ProjectSettings/Physics.gravity "0 -20 0"   Write a project setting
-  get ... | set ...             Pipe values between objects
-  component list <path>         List components on a GameObject
-  component add <path> <type>   Add a component (returns canonical path)
-  component remove <path> <t>   Remove a component (use Type[n] for duplicates)
-  select <path>                 Set Editor Selection (bridge to Hierarchy)
-  select :Hat                   Select each selection's Hat child (fan-out)
-  select --get                  Print current Selection (one path per line)
-  select --add <path>           Add to Selection
-  select --clear                Deselect all
-  create Empty <p>/<name>       Create empty GameObject
-  create Cube <p>/<name>        Create primitive (Cube, Sphere, ...)
-  create --prefab <asset> <p>   Instantiate prefab instance
-  rm <path>                     Destroy a GameObject and its children
-  rm .                          Destroy the current selection (fan-out)
-  find ... --plain | rm         Batch delete via stdin (one path per line)
-  cp <src> <parent>/<name>      Copy a GameObject to a new location
-  cp <src> <parent>/            Copy under parent, keep source name
-  cp <src> /<name>              Copy at the scene root (no parent)
-  cp <src> <dst> --depth N      Limit descendant layers (0 = no children)
-  cp <src> <dst> --auto-suffix  Append " (1)", " (2)", … on name collision
-  mv <src> <parent>/<name>      Move/rename a GameObject (reparent + rename)
-  mv <src> <parent>/            Reparent, keep current name
-  mv <src> /<name>              Move to the scene root (no parent)
-  reorder <path> --index N      Set sibling position (0-based)
-  reorder <path> --first|--last Move to first/last among siblings
-  reorder <path> --up|--down N  Shift up/down by N (default 1)
-  reorder <path> --before|--after <name>   Insert relative to named sibling
-  reorder <path>:Comp --up      Reorder a component on its GameObject
+Scene navigation
+  ls [-R] [path]              list Hierarchy children (or scene roots)
+  find [path] [filters]       search loaded scenes or the asset database
+  inspect <path>              dump GameObject / Component / property
+  select [<path>...]          set / read / clear the Editor's Selection
 
-Console:
-  console                       Read error & warning logs (default)
-  console --lines 20            Limit to N entries
-  console --type error,warning,log   Filter by log types (comma-separated)
-  console --stacktrace full     Stack trace: none, user (default), full
-  console --clear               Clear console
+Properties
+  get <path>:Comp.prop        read one property value
+  set <path>:Comp.prop <v>    write one property value (registers Undo)
+  find ... | get :Comp.prop   broadcast read across stdin paths
+  find ... | set :Comp.prop v broadcast write (one Undo group)
 
-Execute C#:
-  exec "<code>"                 Run C# code in Unity (return required for output)
-  echo '<code>' | exec          Pipe code via stdin (avoids shell escaping)
-  exec "<code>" --usings x,y    Add extra using directives
+Hierarchy mutation
+  create <type> <p>/<n>       create empty/primitive (or --prefab <asset>)
+  create <type> /<n>          create at scene root
+  rm <path>                   destroy a GameObject and its children
+  cp <src> <dst>              copy a subtree (--depth N, --auto-suffix)
+  mv <src> <dst>              reparent and/or rename
+  reorder <path> --up|--down|--index|--first|--last|--before|--after <n>
+  component list|add|remove <path> [<type>]
 
-  Examples:
-    exec "Time.time"
-    exec "GameObject.FindObjectsOfType<Camera>().Length"
-    exec "var go = new GameObject(\"Test\"); return go.name;"
+Prefabs
+  prefab status|diff|apply|revert|create|unpack|variant|open|close
 
-Menu:
-  menu "<path>"                 Execute Unity menu item by path
+Scenes (load / save / activate)
+  scene list|open|close|save|reload|set-active|new|dirty
 
-  Examples:
-    menu "File/Save Project"
-    menu "Assets/Refresh"
+Assets
+  find Assets/<glob>          search the asset database
+  guid <assetpath>...         asset path → GUID
+  path <guid>...              GUID → asset path
+  reimport <path> [--recursive]   re-run the import pipeline
 
-Screenshot:
-  screenshot                          Capture scene view (default)
-  screenshot --view game              Capture game view
-  screenshot --output-path <path>     Custom output path (alias: -o)
+Editor
+  editor play|stop|pause|refresh [--wait|--compile]
+  console [--lines N] [--type ...] [--stacktrace ...] [--clear]
+  menu "<path>"               execute a Unity menu item
+  screenshot [--view scene|game] [--width N] [--height N] [-o file]
+  reserialize [path...]       force YAML reserialization
+  profiler hierarchy|enable|disable|status|clear
+  exec "<C# code>"            arbitrary C# (return for output)
 
-Reimport:
-  reimport <path>                Re-run the import pipeline on an asset
-  reimport <folder> --recursive  Walk into a folder and reimport every asset
-  find ... --plain | reimport    Batch reimport from stdin
+Diagnostics
+  status                      show Unity state
+  test [--mode EditMode|PlayMode] [--filter ...]
+  list                        list every registered tool
 
-Reserialize:
-  reserialize [path...]          Force reserialize (no args = entire project)
+Tooling
+  completion bash|zsh|fish|powershell
+  update [--check]
+  help <command>              detailed reference for one command
 
-  Examples:
-    reserialize                                                    Reserialize entire project
-    reserialize Assets/Scenes/Main.unity
-    reserialize Assets/Prefabs/A.prefab Assets/Prefabs/B.prefab
+Global flags
+  --port <N>                  pick a Unity instance by heartbeat port
+  --project <path>            pick a Unity instance by project path
+  --timeout <ms>              request timeout (default 120000)
+  --ignore-version-mismatch   skip CLI/connector version check
 
-Tests:
-  test                            Run EditMode tests (default)
-  test --mode PlayMode            Run PlayMode tests
-  test --filter <name>            Filter by namespace, class, or full test name
-  test --allow-dirty-scenes       Run even when open scenes have unsaved changes
-  test --auto-save-scenes         Save dirty open scenes before running tests
+Notes
+  - Multi-target paths fan out across the current selection. Stdin paths
+    work for get, set, inspect, rm, select, component, prefab, reimport.
+  - Default output: ls/find/get/cp/mv/create/component emit canonical
+    paths (one per line); use --json for structured records.
+  - Unity must be running with the Connector package installed.
 
-Profiler:
-  profiler hierarchy              Top-level profiler samples (last frame)
-  profiler hierarchy --depth 5    Recursive drill-down (0=unlimited)
-  profiler hierarchy --root Name  Set root by name (substring match)
-  profiler hierarchy --frames 30  Average over last 30 frames
-  profiler hierarchy --parent 5   Drill into item by ID
-  profiler hierarchy --min 0.5    Filter items below 0.5ms
-  profiler hierarchy --sort self  Sort by self time
-  profiler enable                Start profiler recording
-  profiler disable               Stop profiler recording
-  profiler status                Show profiler state
-  profiler clear                 Clear all captured frames
-
-Assets:
-  find Assets/                          Search entire asset database
-  find Assets/Prefabs/                  Restrict to a subfolder
-  find Assets/Prefabs/Enemy*            Path glob
-  find Assets/ --type Material          Filter by asset type
-  find Assets/ --name "Metal*"          Filter by name
-  find Assets/ --label MyLabel          Filter by asset label
-  guid <assetpath>...                   Asset path → GUID (one per line)
-  path <guid>...                        GUID → asset path
-
-Scene:
-  scene list                            List loaded scenes (active marked with *)
-  scene open <assetpath>                Open a scene (mode=single by default)
-  scene open <ap> --mode additive       Add to currently-loaded set
-  scene close <pathOrName>              Close a loaded scene (--save | --discard)
-  scene save [<pathOrName>]             Save scene (defaults to active scene)
-  scene save --as <newassetpath>        Save active scene to a new path
-  scene reload [<pn>] [--save|--discard]  Reopen scene from disk
-  scene set-active <pathOrName>         Make a loaded scene the active scene
-  scene new [--as <assetpath>]          Create a new scene, optionally save to path
-  scene dirty [<pathOrName>]            Print true/false — is the scene modified?
-
-Prefab:
-  prefab status <path>                  Show prefab connection + override summary
-  prefab diff <path>                    Show overrides vs. source (git-style)
-  prefab apply <path>                   Apply ALL overrides to source asset
-  prefab apply <path>:Comp[.prop]       Apply overrides on one component / property
-  prefab revert <path>                  Revert ALL overrides on the instance
-  prefab revert <path>:Comp[.prop]      Revert overrides on one component / property
-  prefab create <scenepath> <asset>     Save a scene object as a new prefab
-  prefab unpack <path> [--completely]   Break the prefab connection on an instance
-  prefab variant <source> <newasset>    Create a variant of an existing prefab
-  prefab open <assetpath>               Enter prefab editing mode
-  prefab close [--discard]              Exit prefab editing mode (saves by default)
-
-Custom Tools:
-  list                          List all registered tools with parameter schemas
-  <name>                        Call a custom tool directly
-  <name> --params '{"k":"v"}'   Call with JSON parameters
-
-Status:
-  status                        Show Unity Editor state (ready, compiling, etc.)
-
-Update:
-  update                        Update to the latest version
-  update --check                Check for updates without installing
-
-Shell Completion:
-  completion bash               Print bash completion script
-  completion zsh                Print zsh completion script
-  completion fish               Print fish completion script
-  completion powershell         Print PowerShell completion script
-  (see 'unity-cli help completion' for installation)
-
-Global Options:
-  --port <N>          Select Unity instance by active heartbeat port
-  --project <path>    Select Unity instance by project path
-  --timeout <ms>      Request timeout in ms (default: 120000)
-  --ignore-version-mismatch
-                      Run even when CLI and connector versions differ
-
-Use "unity-cli <command> --help" for more information about a command.
-
-Notes:
-  - Unity must be open with the Connector package installed
-  - Multiple Unity instances: use --port or --project to select
-  - Custom tools: any [UnityCliTool] class is auto-discovered
-  - Run 'list' to see all available tools
+Run 'unity-cli list' to see every registered tool (including custom ones).
 `)
 }
 
