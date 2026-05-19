@@ -100,10 +100,19 @@ namespace UnityCliConnector.Tools
 			// resolved GameObject is the loaded prefab root — its canonical
 			// `/Name` is meaningless to a reader. Surface the asset path
 			// instead so the inspect header matches what was typed.
+			//
+			// For sub-asset paths (`Assets/Foo.prefab//Hat/Tip`), compose
+			// the asset path + `//` + segment chain so the header still
+			// matches user input rather than the in-memory `/Hat/Tip`
+			// path of the loaded prefab.
 			string displayPathOverride = null;
-			if (parsed.Kind == PathKind.Asset && !string.IsNullOrEmpty(parsed.AssetPath)
-				&& (parsed.Segments == null || parsed.Segments.Count == 0))
-				displayPathOverride = parsed.AssetPath;
+			if (parsed.Kind == PathKind.Asset && !string.IsNullOrEmpty(parsed.AssetPath))
+			{
+				if (parsed.Segments == null || parsed.Segments.Count == 0)
+					displayPathOverride = parsed.AssetPath;
+				else
+					displayPathOverride = parsed.AssetPath + "//" + JoinSegments(parsed.Segments);
+			}
 
 			// Single target → simple shape (back-compat with single-target callers).
 			if (targets.Count == 1)
@@ -113,8 +122,9 @@ namespace UnityCliConnector.Tools
 			var results = new List<object>(targets.Count);
 			foreach (var go in targets)
 			{
-				var single = RenderTarget(go, parsed, overridesOnly, format);
-				results.Add(WrapForFanOut(go, single, format));
+				var single = RenderTarget(go, parsed, overridesOnly, format, displayPathOverride);
+				results.Add(WrapForFanOut(go, single, format,
+					fallbackPath: displayPathOverride));
 			}
 
 			if (format == "json")
@@ -178,10 +188,22 @@ namespace UnityCliConnector.Tools
 					continue;
 				}
 
+				// Asset inputs (whole-asset or sub-asset) — header with the
+				// user-typed asset/sub-asset path rather than the loaded
+				// GameObject's in-memory `/Name`. Matches the single-target
+				// branch's behaviour.
+				string display = null;
+				if (parsed.Kind == PathKind.Asset && !string.IsNullOrEmpty(parsed.AssetPath))
+				{
+					display = parsed.AssetPath;
+					if (parsed.Segments != null && parsed.Segments.Count > 0)
+						display += "//" + JoinSegments(parsed.Segments);
+				}
+
 				foreach (var go in targetsRes.Value)
 				{
-					var single = RenderTarget(go, parsed, overridesOnly, format);
-					results.Add(WrapForFanOut(go, single, format));
+					var single = RenderTarget(go, parsed, overridesOnly, format, display);
+					results.Add(WrapForFanOut(go, single, format, fallbackPath: display));
 				}
 			}
 
@@ -250,7 +272,14 @@ namespace UnityCliConnector.Tools
 			// Renderers return SuccessResponse / ErrorResponse; pull out the
 			// data (or error message) so the wrapping array carries clean
 			// per-target records.
-			var canonical = go != null ? PathResolver.GetCanonicalPath(go) : (fallbackPath ?? "");
+			//
+			// fallbackPath wins over `go`'s canonical path when supplied —
+			// callers use it to surface the user-facing input path (asset
+			// + sub-asset segments) instead of the loaded GameObject's
+			// in-memory `/Name`.
+			var canonical = !string.IsNullOrEmpty(fallbackPath)
+				? fallbackPath
+				: (go != null ? PathResolver.GetCanonicalPath(go) : "");
 			switch (renderResult)
 			{
 				case SuccessResponse sr:
@@ -728,6 +757,20 @@ namespace UnityCliConnector.Tools
 			{
 				if (i > 0) sb.Append('.');
 				sb.Append(parts[i]);
+			}
+			return sb.ToString();
+		}
+
+		// Stringify hierarchy segments (post `//`) back to a slash-joined
+		// form — `[{Name=Hat}, {Name=Tip,Index=1}]` → "Hat/Tip[1]". Used to
+		// rebuild the user-typed sub-asset path for inspect headers.
+		private static string JoinSegments(List<PathSegment> segments)
+		{
+			var sb = new StringBuilder();
+			for (var i = 0; i < segments.Count; i++)
+			{
+				if (i > 0) sb.Append('/');
+				sb.Append(segments[i].ToString());
 			}
 			return sb.ToString();
 		}
