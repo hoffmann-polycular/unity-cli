@@ -44,12 +44,15 @@ func selectCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	hasGet := contains(args, "--get")
 	hasClear := contains(args, "--clear")
 	hasAdd := contains(args, "--add")
+	// Output flag for --get: --null-delimited / --null wraps the output
+	// in NUL separators (asset paths with spaces survive xargs -0 etc).
+	hasNull := contains(args, "--null-delimited") || contains(args, "--null")
 
 	// Pull positional path (only one expected).
 	var positionalPath string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
-		if a == "--get" || a == "--clear" {
+		if a == "--get" || a == "--clear" || a == "--null-delimited" || a == "--null" {
 			continue
 		}
 		if a == "--add" {
@@ -78,6 +81,9 @@ func selectCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 		"get":   hasGet,
 		"clear": hasClear,
 		"add":   hasAdd,
+	}
+	if hasNull {
+		params["format"] = "null"
 	}
 	switch {
 	case positionalPath != "":

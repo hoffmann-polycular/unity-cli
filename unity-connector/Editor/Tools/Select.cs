@@ -107,7 +107,13 @@ namespace UnityCliConnector.Tools
 					if (obj is GameObject go) paths.Add(PathResolver.GetCanonicalPath(go));
 					else if (obj is Component c) paths.Add(PathResolver.GetCanonicalPath(c.gameObject));
 				}
-				var output = string.Join("\n", paths);
+				// Honour the standard --null-delimited / --null format so
+				// `select --get | xargs -0 ...` works even when asset paths
+				// have spaces. Matches ls/find's output flag set.
+				var format = (p.Get("format") ?? "plain").ToLowerInvariant();
+				var sep = (format == "null" || format == "null-delimited" || format == "null_delimited")
+					? "\0" : "\n";
+				var output = string.Join(sep, paths);
 				return new SuccessResponse(output.Length == 0 ? "(no selection)" : "", output);
 			}
 

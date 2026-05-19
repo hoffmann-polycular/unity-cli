@@ -190,7 +190,7 @@ When `newValue == oldValue` and we're a prefab instance, this still seems
 to mark the property as overridden. Possibly Unity's own behavior (any
 write through `SerializedObject` overrides), but worth a no-op short-circuit.
 
-### 11. Asset paths with spaces don't auto-quote when piped through select-as-asset
+### 11. Asset paths with spaces don't auto-quote when piped through select-as-asset ✅ FIXED
 
 The `select 'Assets/Foo Bar.prefab'` worked, but the round-trip via
 `--get` doesn't preserve the asset path (see #3). With spaces in the
