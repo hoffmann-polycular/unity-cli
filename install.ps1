@@ -1,3 +1,7 @@
+param(
+    [switch]$WithSkill
+)
+
 $ErrorActionPreference = "Stop"
 
 $repo = "hoffmann-polycular/unity-cli"
@@ -19,3 +23,11 @@ if ($userPath -notlike "*$installDir*") {
 
 Write-Host "Installed unity-cli to $exe"
 & $exe version
+
+if ($WithSkill) {
+    $skillDir = "$env:USERPROFILE\.claude\skills\unity-cli"
+    New-Item -ItemType Directory -Force -Path $skillDir | Out-Null
+    $skillUrl = "https://raw.githubusercontent.com/$repo/main/.claude/skills/unity-cli/SKILL.md"
+    Invoke-WebRequest -Uri $skillUrl -OutFile "$skillDir\SKILL.md" -UseBasicParsing
+    Write-Host "Installed Claude Code skill to $skillDir\SKILL.md"
+}

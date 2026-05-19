@@ -44,6 +44,26 @@ unity-cli update --check
 
 ---
 
+## Claude Code Skill
+
+The repository ships a [Claude Code](https://claude.ai/code) skill that teaches Claude the full unity-cli command set, path grammar, and composition patterns. With it installed, Claude automatically reaches for unity-cli when you describe what you want to do in Unity terms — without you needing to mention the tool by name.
+
+Pass `--with-skill` (Linux/macOS) or `-WithSkill` (Windows) to the installer to install it alongside the binary:
+
+**Linux / macOS**
+```bash
+curl -fsSL https://raw.githubusercontent.com/hoffmann-polycular/unity-cli/main/install.sh | sh -s -- --with-skill
+```
+
+**Windows (PowerShell)**
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/hoffmann-polycular/unity-cli/main/install.ps1))) -WithSkill
+```
+
+The skill is written to `~/.claude/skills/unity-cli/SKILL.md` (`%USERPROFILE%\.claude\skills\unity-cli\SKILL.md` on Windows). To update it after a unity-cli upgrade, re-run the installer with the flag, or copy `.claude/skills/unity-cli/SKILL.md` from the repo manually.
+
+---
+
 ## Unity Connector Package
 
 The Connector is a UPM package that runs inside the Unity Editor. It opens an HTTP server and handles incoming CLI commands.

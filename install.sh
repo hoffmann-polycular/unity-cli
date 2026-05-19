@@ -3,6 +3,13 @@ set -e
 
 REPO="hoffmann-polycular/unity-cli"
 
+INSTALL_SKILL=0
+for arg in "$@"; do
+  case "$arg" in
+    --with-skill) INSTALL_SKILL=1 ;;
+  esac
+done
+
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 case "$OS" in
   linux)  ;;
@@ -44,3 +51,11 @@ esac
 
 echo "Installed unity-cli to $INSTALL_DIR/unity-cli"
 "$INSTALL_DIR/unity-cli" version
+
+if [ "$INSTALL_SKILL" = "1" ]; then
+  SKILL_DIR="$HOME/.claude/skills/unity-cli"
+  mkdir -p "$SKILL_DIR"
+  curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/.claude/skills/unity-cli/SKILL.md" \
+    -o "$SKILL_DIR/SKILL.md"
+  echo "Installed Claude Code skill to $SKILL_DIR/SKILL.md"
+fi

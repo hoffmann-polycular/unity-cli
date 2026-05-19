@@ -111,6 +111,8 @@ curl -fsSL https://raw.githubusercontent.com/hoffmann-polycular/unity-cli/main/i
 irm https://raw.githubusercontent.com/hoffmann-polycular/unity-cli/main/install.ps1 | iex
 ```
 
+Add `--with-skill` / `-WithSkill` to also install the [Claude Code skill](docs/installation.md#claude-code-skill) that teaches Claude how to use unity-cli.
+
 **Go install**
 ```bash
 go install github.com/hoffmann-polycular/unity-cli@latest
