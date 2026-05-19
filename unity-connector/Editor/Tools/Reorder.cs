@@ -85,6 +85,7 @@ namespace UnityCliConnector.Tools
 			var p = new ToolParams(@params);
 			var args = p.GetRaw("args") as JArray;
 			var pathArg = p.Get("path") ?? (args != null && args.Count > 0 ? args[0]?.ToString() : null);
+			var format = (p.Get("format") ?? "plain").ToLowerInvariant();
 
 			if (string.IsNullOrWhiteSpace(pathArg))
 				return new ErrorResponse("reorder requires a target path.");
@@ -105,8 +106,8 @@ namespace UnityCliConnector.Tools
 			{
 				var go = targets[0];
 				if (parsed.Component.IsPresent)
-					return ReorderComponent(go, parsed.Component, op.Value);
-				return ReorderSibling(go, op.Value);
+					return ReorderComponent(go, parsed.Component, op.Value, format);
+				return ReorderSibling(go, op.Value, format);
 			}
 
 			// Fan-out: one Undo group, per-target results.
@@ -118,9 +119,12 @@ namespace UnityCliConnector.Tools
 			var errors = new List<string>();
 			foreach (var go in targets)
 			{
+				// Always render fan-out entries as JSON internally so we have
+				// structured data to aggregate; the outer response respects
+				// the requested format.
 				object result = parsed.Component.IsPresent
-					? ReorderComponent(go, parsed.Component, op.Value)
-					: ReorderSibling(go, op.Value);
+					? ReorderComponent(go, parsed.Component, op.Value, "json")
+					: ReorderSibling(go, op.Value, "json");
 				switch (result)
 				{
 					case SuccessResponse sr:
@@ -138,16 +142,34 @@ namespace UnityCliConnector.Tools
 			var msg = errors.Count == 0
 				? $"reorder applied to {applied.Count} object(s)."
 				: $"reorder applied to {applied.Count} object(s); {errors.Count} failed.";
-			return new SuccessResponse(msg, new Dictionary<string, object>
+
+			if (format == "json")
 			{
-				["applied"] = applied,
-				["errors"] = errors,
-			});
+				return new SuccessResponse(msg, new Dictionary<string, object>
+				{
+					["applied"] = applied,
+					["errors"] = errors,
+				});
+			}
+
+			// Plain default: one canonical path per applied target.
+			var paths = new List<string>(applied.Count);
+			foreach (var entry in applied)
+				if (entry is Dictionary<string, object> dict
+					&& dict.TryGetValue("path", out var pv) && pv is string s)
+					paths.Add(s);
+			var resp = new SuccessResponse(msg, string.Join("\n", paths));
+			if (errors.Count > 0)
+			{
+				resp.partialFailure = true;
+				resp.stderr = string.Join("\n", errors);
+			}
+			return resp;
 		}
 
 		// --- sibling reorder ---
 
-		private static object ReorderSibling(GameObject go, Op op)
+		private static object ReorderSibling(GameObject go, Op op, string format = "json")
 		{
 			Transform parent = go.transform.parent;
 			List<GameObject> siblings = parent != null
@@ -164,16 +186,16 @@ namespace UnityCliConnector.Tools
 			var newIndex = target.Value;
 
 			if (newIndex == oldIndex)
-				return BuildSiblingResponse(go, oldIndex, newIndex, count, "noop");
+				return BuildSiblingResponse(go, oldIndex, newIndex, count, "noop", format);
 
 			Undo.SetTransformParent(go.transform, parent, $"Reorder {go.name}");
 			go.transform.SetSiblingIndex(newIndex);
 			EditorUtility.SetDirty(go);
 
-			return BuildSiblingResponse(go, oldIndex, newIndex, count, "moved");
+			return BuildSiblingResponse(go, oldIndex, newIndex, count, "moved", format);
 		}
 
-		private static object BuildSiblingResponse(GameObject go, int oldIndex, int newIndex, int siblingCount, string status)
+		private static object BuildSiblingResponse(GameObject go, int oldIndex, int newIndex, int siblingCount, string status, string format)
 		{
 			var canonical = PathResolver.GetCanonicalPath(go);
 			var data = new Dictionary<string, object>
@@ -185,12 +207,16 @@ namespace UnityCliConnector.Tools
 				["siblingCount"] = siblingCount,
 				["status"] = status,
 			};
-			return new SuccessResponse(canonical, data);
+			// Pipe-friendly default: data is the canonical path (string).
+			// --json opts back into the full record.
+			return format == "json"
+				? new SuccessResponse(canonical, data)
+				: new SuccessResponse(canonical, canonical);
 		}
 
 		// --- component reorder ---
 
-		private static object ReorderComponent(GameObject go, ComponentRef compRef, Op op)
+		private static object ReorderComponent(GameObject go, ComponentRef compRef, Op op, string format = "json")
 		{
 			var compResolve = PathResolver.ResolveComponent(go, compRef);
 			if (!compResolve.IsSuccess) return ErrorResponse.FromResult(compResolve);
@@ -218,7 +244,7 @@ namespace UnityCliConnector.Tools
 			if (newIndex == 0) newIndex = 1;
 
 			if (newIndex == oldIndex)
-				return BuildComponentResponse(go, component, oldIndex, newIndex, count, "noop");
+				return BuildComponentResponse(go, component, oldIndex, newIndex, count, "noop", format);
 
 			Undo.RegisterCompleteObjectUndo(go, $"Reorder {component.GetType().Name}");
 
@@ -241,10 +267,10 @@ namespace UnityCliConnector.Tools
 
 			EditorUtility.SetDirty(go);
 			var status = current == newIndex ? "moved" : "partial";
-			return BuildComponentResponse(go, component, oldIndex, current, count, status);
+			return BuildComponentResponse(go, component, oldIndex, current, count, status, format);
 		}
 
-		private static object BuildComponentResponse(GameObject go, Component c, int oldIndex, int newIndex, int total, string status)
+		private static object BuildComponentResponse(GameObject go, Component c, int oldIndex, int newIndex, int total, string status, string format)
 		{
 			var canonical = PathResolver.GetCanonicalPath(go) + ":" + c.GetType().Name;
 			var data = new Dictionary<string, object>
@@ -256,7 +282,9 @@ namespace UnityCliConnector.Tools
 				["componentCount"] = total,
 				["status"] = status,
 			};
-			return new SuccessResponse(canonical, data);
+			return format == "json"
+				? new SuccessResponse(canonical, data)
+				: new SuccessResponse(canonical, canonical);
 		}
 
 		// --- op resolution ---

@@ -46,6 +46,7 @@ func reorderCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	if len(args) < 1 {
 		return nil, fmt.Errorf("usage: unity-cli reorder <path> <--index N | --first | --last | --up [N] | --down [N] | --before <name> | --after <name>>")
 	}
+	args = translateJSONFlag(args)
 	params, err := buildParams(args, nil)
 	if err != nil {
 		return nil, err
