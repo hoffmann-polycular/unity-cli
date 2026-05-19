@@ -96,9 +96,18 @@ namespace UnityCliConnector.Tools
 			if (!targetsRes.IsSuccess) return ErrorResponse.FromResult(targetsRes);
 			var targets = targetsRes.Value;
 
+			// When the user asked about an on-disk asset (prefab), the
+			// resolved GameObject is the loaded prefab root — its canonical
+			// `/Name` is meaningless to a reader. Surface the asset path
+			// instead so the inspect header matches what was typed.
+			string displayPathOverride = null;
+			if (parsed.Kind == PathKind.Asset && !string.IsNullOrEmpty(parsed.AssetPath)
+				&& (parsed.Segments == null || parsed.Segments.Count == 0))
+				displayPathOverride = parsed.AssetPath;
+
 			// Single target → simple shape (back-compat with single-target callers).
 			if (targets.Count == 1)
-				return RenderTarget(targets[0], parsed, overridesOnly, format);
+				return RenderTarget(targets[0], parsed, overridesOnly, format, displayPathOverride);
 
 			// Multi-target fan-out → array of per-target results.
 			var results = new List<object>(targets.Count);
@@ -200,10 +209,11 @@ namespace UnityCliConnector.Tools
 			return humanResp;
 		}
 
-		private static object RenderTarget(GameObject go, ParsedPath parsed, bool overridesOnly, string format)
+		private static object RenderTarget(GameObject go, ParsedPath parsed, bool overridesOnly, string format,
+			string displayPathOverride = null)
 		{
 			if (!parsed.Component.IsPresent)
-				return RenderGameObject(go, overridesOnly, format);
+				return RenderGameObject(go, overridesOnly, format, displayPathOverride);
 
 			// :GameObject pseudo-component — virtual fields, no SerializedObject.
 			if (GameObjectProxy.Is(parsed.Component.TypeName))
@@ -471,12 +481,13 @@ namespace UnityCliConnector.Tools
 
 		// ---- GameObject view ----
 
-		private static object RenderGameObject(GameObject go, bool overridesOnly, string format)
+		private static object RenderGameObject(GameObject go, bool overridesOnly, string format,
+			string displayPathOverride = null)
 		{
 			var components = go.GetComponents<Component>();
 			var data = new Dictionary<string, object>
 			{
-				["path"] = PathResolver.GetCanonicalPath(go),
+				["path"] = displayPathOverride ?? PathResolver.GetCanonicalPath(go),
 				["name"] = go.name,
 				["active"] = go.activeInHierarchy,
 				["activeSelf"] = go.activeSelf,

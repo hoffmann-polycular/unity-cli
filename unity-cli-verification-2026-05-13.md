@@ -138,7 +138,7 @@ read `prop.enumDisplayNames[prop.enumValueIndex]` instead of raw `intValue`.
 
 ---
 
-### 7. Inspecting an asset shows the wrong path
+### 7. Inspecting an asset shows the wrong path ✅ FIXED
 
 ```
 $ unity-cli inspect Assets/00_App/Prefabs/FAQ\ Dummy.prefab
