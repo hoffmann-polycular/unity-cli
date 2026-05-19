@@ -27,7 +27,7 @@ package cmd
 import (
 	"strings"
 
-	"github.com/youngwoocho02/unity-cli/internal/client"
+	"github.com/hoffmann-polycular/unity-cli/internal/client"
 )
 
 // getCmd reads one serialized-property value from a path.

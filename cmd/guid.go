@@ -25,7 +25,7 @@
 package cmd
 
 import (
-	"github.com/youngwoocho02/unity-cli/internal/client"
+	"github.com/hoffmann-polycular/unity-cli/internal/client"
 )
 
 // guidCmd converts asset paths to GUIDs.

@@ -3,7 +3,7 @@ package cmd
 import (
 	"testing"
 
-	"github.com/youngwoocho02/unity-cli/internal/client"
+	"github.com/hoffmann-polycular/unity-cli/internal/client"
 )
 
 func TestTestCmd_ForwardsDirtySceneOptions(t *testing.T) {

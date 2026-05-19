@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/youngwoocho02/unity-cli/cmd"
-	"github.com/youngwoocho02/unity-cli/internal/cli/exit"
+	"github.com/hoffmann-polycular/unity-cli/cmd"
+	"github.com/hoffmann-polycular/unity-cli/internal/cli/exit"
 )
 
 var Version = "dev"

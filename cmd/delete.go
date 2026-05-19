@@ -29,7 +29,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/youngwoocho02/unity-cli/internal/client"
+	"github.com/hoffmann-polycular/unity-cli/internal/client"
 )
 
 // rmCmd destroys GameObjects by path. Under v3, fan-out across the current

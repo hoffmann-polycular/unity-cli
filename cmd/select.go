@@ -27,7 +27,7 @@ package cmd
 import (
 	"strings"
 
-	"github.com/youngwoocho02/unity-cli/internal/client"
+	"github.com/hoffmann-polycular/unity-cli/internal/client"
 )
 
 // selectCmd bridges the Editor's Selection with the terminal.

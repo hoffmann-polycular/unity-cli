@@ -127,7 +127,7 @@ https://github.com/hoffmann-polycular/unity-cli.git?path=unity-connector
 
 Or add to `Packages/manifest.json`:
 ```json
-"com.youngwoocho02.unity-cli-connector": "https://github.com/hoffmann-polycular/unity-cli.git?path=unity-connector"
+"com.polycular.unity-cli-connector": "https://github.com/hoffmann-polycular/unity-cli.git?path=unity-connector"
 ```
 
 Once added, the Connector starts automatically when Unity opens and writes a heartbeat file so the CLI can find it. No configuration needed.

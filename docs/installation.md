@@ -65,7 +65,7 @@ Edit `Packages/manifest.json` directly:
 ```json
 {
   "dependencies": {
-    "com.youngwoocho02.unity-cli-connector": "https://github.com/hoffmann-polycular/unity-cli.git?path=unity-connector"
+    "com.polycular.unity-cli-connector": "https://github.com/hoffmann-polycular/unity-cli.git?path=unity-connector"
   }
 }
 ```

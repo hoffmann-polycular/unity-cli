@@ -27,7 +27,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/youngwoocho02/unity-cli/internal/client"
+	"github.com/hoffmann-polycular/unity-cli/internal/client"
 )
 
 // componentCmd dispatches `component <action> <path> [<type>]` to the

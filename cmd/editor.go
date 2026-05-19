@@ -8,7 +8,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/youngwoocho02/unity-cli/internal/client"
+	"github.com/hoffmann-polycular/unity-cli/internal/client"
 )
 
 // editorCmd controls Unity play mode and asset database.

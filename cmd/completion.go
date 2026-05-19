@@ -29,7 +29,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/youngwoocho02/unity-cli/internal/client"
+	"github.com/hoffmann-polycular/unity-cli/internal/client"
 )
 
 // completionCmd emits a shell completion script for the given shell.

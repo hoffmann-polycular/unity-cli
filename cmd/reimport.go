@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"github.com/youngwoocho02/unity-cli/internal/client"
+	"github.com/hoffmann-polycular/unity-cli/internal/client"
 )
 
 // reimportCmd forces Unity to re-run the import pipeline on one or more

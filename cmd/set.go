@@ -29,7 +29,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/youngwoocho02/unity-cli/internal/client"
+	"github.com/hoffmann-polycular/unity-cli/internal/client"
 )
 
 // setCmd writes a single serialized-property value.

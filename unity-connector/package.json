@@ -1,5 +1,5 @@
 {
-  "name": "com.youngwoocho02.unity-cli-connector",
+  "name": "com.polycular.unity-cli-connector",
   "version": "0.3.18",
   "displayName": "Unity CLI Connector",
   "description": "HTTP bridge for unity-cli. Receives CLI commands and dispatches to registered tool handlers.",

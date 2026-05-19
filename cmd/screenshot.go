@@ -25,7 +25,7 @@
 package cmd
 
 import (
-	"github.com/youngwoocho02/unity-cli/internal/client"
+	"github.com/hoffmann-polycular/unity-cli/internal/client"
 )
 
 // screenshotCmd captures a Unity scene/game view to disk.

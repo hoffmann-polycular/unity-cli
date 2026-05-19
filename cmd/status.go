@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/youngwoocho02/unity-cli/internal/client"
+	"github.com/hoffmann-polycular/unity-cli/internal/client"
 )
 
 type instanceResolver func() (*client.Instance, error)

@@ -28,7 +28,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/youngwoocho02/unity-cli/internal/client"
+	"github.com/hoffmann-polycular/unity-cli/internal/client"
 )
 
 // sceneCmd dispatches `scene <action> <args...>` to the `scene` tool with

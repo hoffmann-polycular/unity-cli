@@ -27,7 +27,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/youngwoocho02/unity-cli/internal/client"
+	"github.com/hoffmann-polycular/unity-cli/internal/client"
 )
 
 // createCmd spawns GameObjects (empty/primitive) or prefab instances.
