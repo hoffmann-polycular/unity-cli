@@ -68,6 +68,8 @@ func findCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 			rest = append(rest, "--format", "null")
 		case "--has-overrides":
 			rest = append(rest, "--has_overrides")
+		case "--exact-component":
+			rest = append(rest, "--exact_component")
 		default:
 			rest = append(rest, args[i])
 		}

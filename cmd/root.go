@@ -535,6 +535,9 @@ Filters:
   --layer <name>          Match only objects on this layer (layer name)
   --prefab <assetpath>    Match only prefab-instance roots of this asset
   --has-overrides         Only prefab instances with any override
+  --exact-component       --component/--missing match the exact type only
+                          (default: subclasses also match — e.g. --component
+                          Renderer matches MeshRenderer)
   --active                Only active-in-hierarchy objects
   --inactive              Only inactive-in-hierarchy objects
 

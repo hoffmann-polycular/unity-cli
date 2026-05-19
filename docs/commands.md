@@ -92,6 +92,9 @@ unity-cli find [<scene-path>] [--name <glob>] [--name-prefix <s>] [--name-suffix
 - `--layer <layer>` — only objects on this layer.
 - `--prefab <assetpath>` — only instances of this prefab asset.
 - `--has-overrides` — only prefab instances with overrides.
+- `--exact-component` — `--component` / `--missing` match the exact type only.
+  Default behavior accepts subclasses (e.g. `--component Renderer` matches
+  `MeshRenderer`, `SkinnedMeshRenderer`, …).
 - `--active` / `--inactive` — filter by active state.
 
 A positional scope path restricts the search to that subtree's descendants (the scope object itself is excluded). Bare `/` and `.` with empty selection mean "the whole hierarchy."

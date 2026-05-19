@@ -66,6 +66,9 @@ namespace UnityCliConnector.Tools
 			[ToolParameter("Scene: exclude objects that have a component of this type (may repeat).")]
 			public string Missing { get; set; }
 
+			[ToolParameter("Scene: --component / --missing match exact type only, not subclasses.")]
+			public bool ExactComponent { get; set; }
+
 			[ToolParameter("Scene: match only objects with this tag.")]
 			public string Tag { get; set; }
 
@@ -148,6 +151,7 @@ namespace UnityCliConnector.Tools
 			var wantOverrides = p.GetBool("has_overrides");
 			var wantActive = p.GetBool("active");
 			var wantInactive = p.GetBool("inactive");
+			var exactComponent = p.GetBool("exact_component");
 			var format = (p.Get("format") ?? "plain").ToLowerInvariant();
 
 			if (!string.IsNullOrEmpty(nameGlob) && !string.IsNullOrEmpty(regex))
@@ -207,6 +211,7 @@ namespace UnityCliConnector.Tools
 				HasOverrides = wantOverrides,
 				WantActive = wantActive,
 				WantInactive = wantInactive,
+				ExactComponent = exactComponent,
 			};
 
 			// Resolve the scope: a path positional narrows the search to the
@@ -296,6 +301,7 @@ namespace UnityCliConnector.Tools
 			public bool HasOverrides;
 			public bool WantActive;
 			public bool WantInactive;
+			public bool ExactComponent;
 		}
 
 		private static void CollectScene(GameObject go, SceneFilter filter, List<GameObject> sink)
@@ -332,13 +338,13 @@ namespace UnityCliConnector.Tools
 			if (f.RequiredTypes != null && f.RequiredTypes.Count > 0)
 			{
 				foreach (var t in f.RequiredTypes)
-					if (go.GetComponent(t) == null) return false;
+					if (!HasComponent(go, t, f.ExactComponent)) return false;
 			}
 
 			if (f.ForbiddenTypes != null && f.ForbiddenTypes.Count > 0)
 			{
 				foreach (var t in f.ForbiddenTypes)
-					if (go.GetComponent(t) != null) return false;
+					if (HasComponent(go, t, f.ExactComponent)) return false;
 			}
 
 			if (!string.IsNullOrEmpty(f.PrefabAssetPath) && !MatchesPrefab(go, f.PrefabAssetPath))
@@ -347,6 +353,18 @@ namespace UnityCliConnector.Tools
 			if (f.HasOverrides && !HasAnyOverrides(go)) return false;
 
 			return true;
+		}
+
+		private static bool HasComponent(GameObject go, Type t, bool exact)
+		{
+			if (!exact) return go.GetComponent(t) != null;
+			var comps = go.GetComponents<Component>();
+			foreach (var c in comps)
+			{
+				if (c == null) continue;
+				if (c.GetType() == t) return true;
+			}
+			return false;
 		}
 
 		private static bool MatchesPrefab(GameObject go, string assetPath)
