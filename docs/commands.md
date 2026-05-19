@@ -79,7 +79,7 @@ unity-cli find [<scene-path>] [--name <glob>] [--name-prefix <s>] [--name-suffix
                [--name-contains <s>] [--regex <regex>]
                [--component <type>] [--missing <type>]
                [--tag <tag>] [--layer <layer>]
-               [--prefab <assetpath>] [--has-overrides]
+               [--prefab <assetpath>] [--has-overrides] [--is-prefab-instance]
                [--exact-component] [--max-depth N]
                [--active|--inactive]
 ```
@@ -93,6 +93,8 @@ unity-cli find [<scene-path>] [--name <glob>] [--name-prefix <s>] [--name-suffix
 - `--layer <layer>` — only objects on this layer.
 - `--prefab <assetpath>` — only instances of this prefab asset.
 - `--has-overrides` — only prefab instances with overrides.
+- `--is-prefab-instance` — only prefab-instance roots, regardless of source
+  asset. Use `--prefab <path>` to narrow to one specific source.
 - `--exact-component` — `--component` / `--missing` match the exact type only.
   Default behavior accepts subclasses (e.g. `--component Renderer` matches
   `MeshRenderer`, `SkinnedMeshRenderer`, …).

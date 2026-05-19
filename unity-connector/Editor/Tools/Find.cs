@@ -81,6 +81,9 @@ namespace UnityCliConnector.Tools
 			[ToolParameter("Scene: match only prefab instances with overrides.")]
 			public bool HasOverrides { get; set; }
 
+			[ToolParameter("Scene: match any prefab-instance root (regardless of source asset).")]
+			public bool IsPrefabInstance { get; set; }
+
 			[ToolParameter("Scene: match only active-in-hierarchy objects.")]
 			public bool Active { get; set; }
 
@@ -152,6 +155,7 @@ namespace UnityCliConnector.Tools
 			var layerName = p.Get("layer");
 			var prefabAssetPath = p.Get("prefab");
 			var wantOverrides = p.GetBool("has_overrides");
+			var wantIsPrefabInstance = p.GetBool("is_prefab_instance");
 			var wantActive = p.GetBool("active");
 			var wantInactive = p.GetBool("inactive");
 			var exactComponent = p.GetBool("exact_component");
@@ -219,6 +223,7 @@ namespace UnityCliConnector.Tools
 				LayerIndex = layerIndex,
 				PrefabAssetPath = prefabAssetPath,
 				HasOverrides = wantOverrides,
+				IsPrefabInstance = wantIsPrefabInstance,
 				WantActive = wantActive,
 				WantInactive = wantInactive,
 				ExactComponent = exactComponent,
@@ -310,6 +315,7 @@ namespace UnityCliConnector.Tools
 			public int? LayerIndex;
 			public string PrefabAssetPath;
 			public bool HasOverrides;
+			public bool IsPrefabInstance;
 			public bool WantActive;
 			public bool WantInactive;
 			public bool ExactComponent;
@@ -368,7 +374,14 @@ namespace UnityCliConnector.Tools
 
 			if (f.HasOverrides && !HasAnyOverrides(go)) return false;
 
+			if (f.IsPrefabInstance && !IsPrefabInstanceRoot(go)) return false;
+
 			return true;
+		}
+
+		private static bool IsPrefabInstanceRoot(GameObject go)
+		{
+			return PrefabUtility.GetNearestPrefabInstanceRoot(go) == go;
 		}
 
 		private static bool HasComponent(GameObject go, Type t, bool exact)

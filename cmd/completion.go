@@ -219,7 +219,7 @@ var globalFlags = []string{
 
 var commandFlags = map[string][]string{
 	"ls":         {"-R", "--recursive", "--components", "--json", "--plain", "--null-delimited"},
-	"find":       {"--name", "--regex", "--component", "--missing", "--tag", "--layer", "--prefab", "--has-overrides", "--exact-component", "--max-depth", "--active", "--inactive", "--type", "--label", "--area", "--json", "--plain", "--null-delimited"},
+	"find":       {"--name", "--regex", "--component", "--missing", "--tag", "--layer", "--prefab", "--has-overrides", "--is-prefab-instance", "--exact-component", "--max-depth", "--active", "--inactive", "--type", "--label", "--area", "--json", "--plain", "--null-delimited"},
 	"inspect":    {"--overrides-only", "--json", "--plain"},
 	"get":        {"--source", "--json"},
 	"set":        {"--all", "--value", "--params"},
@@ -420,7 +420,7 @@ func collectPositionals(args []string) []string {
 var knownBooleanFlags = map[string]bool{
 	"--recursive": true, "-R": true, "--components": true,
 	"--json": true, "--plain": true, "--null-delimited": true,
-	"--has-overrides": true, "--exact-component": true, "--active": true, "--inactive": true,
+	"--has-overrides": true, "--is-prefab-instance": true, "--exact-component": true, "--active": true, "--inactive": true,
 	"--overrides-only": true, "--source": true, "--all": true,
 	"--get": true, "--clear": true, "--wait": true, "--compile": true,
 	"--check": true, "--completely": true, "--discard": true,
