@@ -242,11 +242,69 @@ namespace UnityCliConnector
 
 		private static Result<bool> WriteObjectReference(SerializedProperty prop, JToken value)
 		{
-			var typeHint = prop.managedReferenceFieldTypename;
+			// managedReferenceFieldTypename only exists on SerializeReference
+			// properties; reading it on a plain PPtr (ObjectReference) field
+			// throws "Attempting to get the managed reference full typename...".
+			// For ObjectReference fields we have no SO-level type hint, so we
+			// pass null and let ResolveByString handle path-only inputs as
+			// GameObject references (or do typed coercion via the C# field
+			// type when needed — see ResolveByString).
+			string typeHint = null;
+			if (prop.propertyType == SerializedPropertyType.ManagedReference)
+				typeHint = prop.managedReferenceFieldTypename;
+			else
+				typeHint = ResolveObjectReferenceFieldType(prop);
+
 			var objRes = ResolveObjectFromValue(value, typeHint);
 			if (!objRes.IsSuccess) return Result<bool>.Error(objRes.ErrorMessage);
 			prop.objectReferenceValue = objRes.Value;
 			return Ok();
+		}
+
+		// Walk the propertyPath via reflection to find the field's declared
+		// C# type. Returns the type name (e.g. "BoxCollider", "Material") so
+		// ResolveByString can auto-coerce a GameObject path to the right
+		// Component subtype. Returns null when the path can't be resolved
+		// reflectively (e.g. native-only fields) — assignment then falls back
+		// to "no coercion, take what you give me".
+		private static string ResolveObjectReferenceFieldType(SerializedProperty prop)
+		{
+			try
+			{
+				var target = prop.serializedObject?.targetObject;
+				if (target == null) return null;
+				var t = target.GetType();
+				var path = prop.propertyPath;
+				if (string.IsNullOrEmpty(path)) return null;
+
+				var bf = System.Reflection.BindingFlags.Instance
+					| System.Reflection.BindingFlags.Public
+					| System.Reflection.BindingFlags.NonPublic;
+				foreach (var segment in path.Split('.'))
+				{
+					if (t == null) return null;
+					var seg = segment;
+					System.Reflection.FieldInfo fi = null;
+					for (var cur = t; cur != null && cur != typeof(object); cur = cur.BaseType)
+					{
+						fi = cur.GetField(seg, bf);
+						if (fi != null) break;
+						if (!seg.StartsWith("m_", System.StringComparison.Ordinal) && seg.Length > 0)
+						{
+							var alt = "m_" + char.ToUpperInvariant(seg[0]) + seg.Substring(1);
+							fi = cur.GetField(alt, bf);
+							if (fi != null) break;
+						}
+					}
+					if (fi == null) return null;
+					t = fi.FieldType;
+				}
+				return t?.Name;
+			}
+			catch
+			{
+				return null;
+			}
 		}
 
 		// ---- object resolution ----
