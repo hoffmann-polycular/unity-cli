@@ -80,6 +80,7 @@ unity-cli find [<scene-path>] [--name <glob>] [--name-prefix <s>] [--name-suffix
                [--component <type>] [--missing <type>]
                [--tag <tag>] [--layer <layer>]
                [--prefab <assetpath>] [--has-overrides]
+               [--exact-component] [--max-depth N]
                [--active|--inactive]
 ```
 
@@ -95,6 +96,8 @@ unity-cli find [<scene-path>] [--name <glob>] [--name-prefix <s>] [--name-suffix
 - `--exact-component` — `--component` / `--missing` match the exact type only.
   Default behavior accepts subclasses (e.g. `--component Renderer` matches
   `MeshRenderer`, `SkinnedMeshRenderer`, …).
+- `--max-depth N` — limit recursion depth. `1` = scope's immediate children
+  only (no scope means scene roots only). Default: unlimited.
 - `--active` / `--inactive` — filter by active state.
 
 A positional scope path restricts the search to that subtree's descendants (the scope object itself is excluded). Bare `/` and `.` with empty selection mean "the whole hierarchy."

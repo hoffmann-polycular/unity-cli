@@ -219,7 +219,7 @@ var globalFlags = []string{
 
 var commandFlags = map[string][]string{
 	"ls":         {"-R", "--recursive", "--components", "--json", "--plain", "--null-delimited"},
-	"find":       {"--name", "--regex", "--component", "--missing", "--tag", "--layer", "--prefab", "--has-overrides", "--exact-component", "--active", "--inactive", "--type", "--label", "--area", "--json", "--plain", "--null-delimited"},
+	"find":       {"--name", "--regex", "--component", "--missing", "--tag", "--layer", "--prefab", "--has-overrides", "--exact-component", "--max-depth", "--active", "--inactive", "--type", "--label", "--area", "--json", "--plain", "--null-delimited"},
 	"inspect":    {"--overrides-only", "--json", "--plain"},
 	"get":        {"--source", "--json"},
 	"set":        {"--all", "--value", "--params"},

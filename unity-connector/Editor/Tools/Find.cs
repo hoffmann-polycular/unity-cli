@@ -87,6 +87,9 @@ namespace UnityCliConnector.Tools
 			[ToolParameter("Scene: match only inactive-in-hierarchy objects.")]
 			public bool Inactive { get; set; }
 
+			[ToolParameter("Scene: limit recursion depth (1 = immediate children of scope; 0 = unlimited, default).")]
+			public int MaxDepth { get; set; }
+
 			// Asset mode
 			[ToolParameter("Asset: type filter (e.g. Material, Mesh, Prefab, ScriptableObject, Texture2D).")]
 			public string Type { get; set; }
@@ -152,6 +155,13 @@ namespace UnityCliConnector.Tools
 			var wantActive = p.GetBool("active");
 			var wantInactive = p.GetBool("inactive");
 			var exactComponent = p.GetBool("exact_component");
+			var maxDepthRaw = p.Get("max_depth") ?? p.Get("max-depth");
+			int maxDepth = 0;
+			if (!string.IsNullOrEmpty(maxDepthRaw))
+			{
+				if (!int.TryParse(maxDepthRaw, out maxDepth) || maxDepth < 0)
+					return new ErrorResponse($"--max-depth must be a non-negative integer, got '{maxDepthRaw}'.");
+			}
 			var format = (p.Get("format") ?? "plain").ToLowerInvariant();
 
 			if (!string.IsNullOrEmpty(nameGlob) && !string.IsNullOrEmpty(regex))
@@ -212,6 +222,7 @@ namespace UnityCliConnector.Tools
 				WantActive = wantActive,
 				WantInactive = wantInactive,
 				ExactComponent = exactComponent,
+				MaxDepth = maxDepth,
 			};
 
 			// Resolve the scope: a path positional narrows the search to the
@@ -249,7 +260,7 @@ namespace UnityCliConnector.Tools
 
 			var matches = new List<GameObject>();
 			foreach (var root in roots)
-				CollectScene(root, filter, matches);
+				CollectScene(root, filter, matches, 1);
 
 			return format switch
 			{
@@ -302,13 +313,18 @@ namespace UnityCliConnector.Tools
 			public bool WantActive;
 			public bool WantInactive;
 			public bool ExactComponent;
+			// 0 = unlimited. 1 = roots only (immediate children of scope, or
+			// scene roots when no scope was passed). N = descend up to N
+			// levels below the entry roots.
+			public int MaxDepth;
 		}
 
-		private static void CollectScene(GameObject go, SceneFilter filter, List<GameObject> sink)
+		private static void CollectScene(GameObject go, SceneFilter filter, List<GameObject> sink, int depth)
 		{
 			if (MatchesScene(go, filter)) sink.Add(go);
+			if (filter.MaxDepth > 0 && depth >= filter.MaxDepth) return;
 			for (var i = 0; i < go.transform.childCount; i++)
-				CollectScene(go.transform.GetChild(i).gameObject, filter, sink);
+				CollectScene(go.transform.GetChild(i).gameObject, filter, sink, depth + 1);
 		}
 
 		private static bool MatchesScene(GameObject go, SceneFilter f)

@@ -538,6 +538,8 @@ Filters:
   --exact-component       --component/--missing match the exact type only
                           (default: subclasses also match — e.g. --component
                           Renderer matches MeshRenderer)
+  --max-depth N           Limit recursion: 1 = scope's immediate children
+                          only; default unlimited (full subtree)
   --active                Only active-in-hierarchy objects
   --inactive              Only inactive-in-hierarchy objects
 
