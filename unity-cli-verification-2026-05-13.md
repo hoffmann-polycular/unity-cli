@@ -197,7 +197,7 @@ The `select 'Assets/Foo Bar.prefab'` worked, but the round-trip via
 name, even xargs-piping would need `--null-delimited`. Default null-delim
 output when paths contain spaces would be nice.
 
-### 12. `find` returns subclass instances when a base name is given
+### 12. `find` returns subclass instances when a base name is given ✅ FIXED (docs)
 
 ```
 $ unity-cli find --component Renderer --plain | wc -l

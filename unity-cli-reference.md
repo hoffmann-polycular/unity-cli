@@ -975,7 +975,10 @@ descendants). Without a positional, all scene roots are searched.
 - `--name-contains <s>` — name contains `<s>`.
 - `--regex <regex>` — name regex match (e.g. `"Enemy_[1-5]"`).
 - `--component <type>` — only objects that have a component of this type. May repeat.
+  Matches `is-a` rather than exact type — `--component Renderer` matches
+  every `MeshRenderer`, `SpriteRenderer`, `ParticleSystemRenderer`, etc.
 - `--missing <type>` — only objects that *lack* a component of this type. May repeat.
+  Same `is-a` matching as `--component`.
 - `--tag <tag>` — only objects with this tag.
 - `--layer <layer>` — only objects on this layer.
 - `--prefab <assetpath>` — only instances of this prefab asset.
