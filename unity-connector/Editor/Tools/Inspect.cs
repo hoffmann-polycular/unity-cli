@@ -672,7 +672,10 @@ namespace UnityCliConnector.Tools
 					return;
 				case List<object> list:
 					if (list.Count == 0) { sb.Append("[]"); return; }
-					sb.Append('[').Append(list.Count).Append(']');
+					// `(N items)` reads as a count summary; the bare `[N]` we
+					// used before looked too much like an index (the entry
+					// indices below are also `[0]`, `[1]`, …).
+					sb.Append('(').Append(list.Count).Append(list.Count == 1 ? " item)" : " items)");
 					sb.Append('\n');
 					for (var i = 0; i < list.Count; i++)
 					{

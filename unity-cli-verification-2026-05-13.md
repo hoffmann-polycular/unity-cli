@@ -215,7 +215,7 @@ When (post-fix) creating at scene root, the JSON response would have
 `parent: ""`. Should be `"/"` for symmetry with `get`/`inspect` output
 where the hierarchy root is `/`.
 
-### 14. Asset-importer `inspect` shows nested lists as `[N]\n  [0] …\n  [1] …`
+### 14. Asset-importer `inspect` shows nested lists as `[N]\n  [0] …\n  [1] …` ✅ FIXED
 
 ```
 materials: [1]
