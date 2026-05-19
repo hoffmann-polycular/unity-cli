@@ -228,16 +228,20 @@ index. `materials: (1)` or `materials (1 items):` would be clearer.
 
 ---
 
-## Discovery gaps (not bugs, but the docs/help don't reveal these)
+## Discovery gaps (not bugs, but the docs/help don't reveal these) ✅ FIXED in #9
 
-- The `:GameObject` pseudo-component is documented in the reference but not
+- ✅ The `:GameObject` pseudo-component is documented in the reference but not
   hinted at in `help` overview. New users won't find it.
-- Same for `:Importer` and `ProjectSettings/<group>` — first-class features
+- ✅ Same for `:Importer` and `ProjectSettings/<group>` — first-class features
   that don't show up in `unity-cli help` overview.
-- `unity-cli __complete` exists and works but isn't documented anywhere
-  user-facing.
-- `unity-cli exec` is the escape hatch — discoverable, but not used in
+- ⛔ `unity-cli __complete` exists and works but isn't documented anywhere
+  user-facing. (Intentionally hidden — internal completion-script API.)
+- ✅ `unity-cli exec` is the escape hatch — discoverable, but not used in
   any example workflow in `help`. Worth one usage example in the overview.
+
+All three first-class features (`:GameObject`, `:Importer`, `ProjectSettings/`)
+are now in the slim `help` overview's Path Grammar block. `exec` is
+listed under Editor. `__complete` remains intentionally private.
 
 ---
 
