@@ -613,6 +613,16 @@ namespace UnityCliConnector
 		public static string NormalizeSerializedName(string name)
 		{
 			if (string.IsNullOrEmpty(name)) return name;
+			// C#-auto-property backing field: `<Foo>k__BackingField` → `Foo`.
+			// Unity serializes auto-properties this way; the inner name is
+			// the actual user-facing property, and that's what `inspect`
+			// should display.
+			if (name.Length > 2 && name[0] == '<')
+			{
+				var close = name.IndexOf('>');
+				if (close > 1 && name.IndexOf("k__BackingField", close, System.StringComparison.Ordinal) == close + 1)
+					return name.Substring(1, close - 1);
+			}
 			if (name.Length > 2 && name[0] == 'm' && name[1] == '_')
 				return char.ToLowerInvariant(name[2]) + name.Substring(3);
 			return name;
