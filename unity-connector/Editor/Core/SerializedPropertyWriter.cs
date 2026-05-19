@@ -257,16 +257,44 @@ namespace UnityCliConnector
 
 			var objRes = ResolveObjectFromValue(value, typeHint);
 			if (!objRes.IsSuccess) return Result<bool>.Error(objRes.ErrorMessage);
-			prop.objectReferenceValue = objRes.Value;
+
+			// Catch silent type-mismatch coercion: Unity will accept a
+			// `prop.objectReferenceValue = X` assignment for a wrong-typed
+			// X (e.g. Shader → Material field) by writing null instead.
+			// Without this guard the user sees `= null` reported as success.
+			// Most ObjectReference fields' C# types aren't reflectively
+			// accessible (m_Materials is native), so the cheap reliable
+			// check is to do the assignment, peek at what stuck, and error
+			// if a non-null source ended up as null on the SO.
+			var requested = objRes.Value;
+			prop.objectReferenceValue = requested;
+			if (requested != null && prop.objectReferenceValue == null)
+			{
+				return Result<bool>.Error(
+					$"'{AssetPathOrName(requested)}' is a {requested.GetType().Name}, " +
+					"not assignable to this field.");
+			}
 			return Ok();
+		}
+
+		private static string AssetPathOrName(Object obj)
+		{
+			if (obj == null) return "null";
+			var p = AssetDatabase.GetAssetPath(obj);
+			return string.IsNullOrEmpty(p) ? obj.name : p;
 		}
 
 		// Walk the propertyPath via reflection to find the field's declared
 		// C# type. Returns the type name (e.g. "BoxCollider", "Material") so
 		// ResolveByString can auto-coerce a GameObject path to the right
-		// Component subtype. Returns null when the path can't be resolved
-		// reflectively (e.g. native-only fields) — assignment then falls back
-		// to "no coercion, take what you give me".
+		// Component subtype, and reject assets whose type doesn't match the
+		// field. Handles plain field names, `m_PascalName` ↔ `camelName`
+		// folding, and SO's `Array.data[idx]` array-element syntax (e.g.
+		// `m_Materials.Array.data[0]` on Renderer → element type `Material`).
+		//
+		// Returns null when the path can't be resolved reflectively (e.g.
+		// native-only fields) — assignment then falls back to
+		// "no coercion, take what you give me".
 		private static string ResolveObjectReferenceFieldType(SerializedProperty prop)
 		{
 			try
@@ -280,10 +308,26 @@ namespace UnityCliConnector
 				var bf = System.Reflection.BindingFlags.Instance
 					| System.Reflection.BindingFlags.Public
 					| System.Reflection.BindingFlags.NonPublic;
-				foreach (var segment in path.Split('.'))
+				var segments = path.Split('.');
+				for (var i = 0; i < segments.Length; i++)
 				{
 					if (t == null) return null;
-					var seg = segment;
+					var seg = segments[i];
+
+					// `Array.data[idx]` — when stepping into an array element,
+					// pull the element type and skip the `data[idx]` segment.
+					// Unity SO uses this exact bracketed form for IList<T> /
+					// T[] property paths.
+					if (seg == "Array" && i + 1 < segments.Length
+						&& segments[i + 1].StartsWith("data[", System.StringComparison.Ordinal))
+					{
+						if (t.IsArray) t = t.GetElementType();
+						else if (t.IsGenericType) t = t.GetGenericArguments()[0];
+						else return null;
+						i++; // consume `data[idx]`
+						continue;
+					}
+
 					System.Reflection.FieldInfo fi = null;
 					for (var cur = t; cur != null && cur != typeof(object); cur = cur.BaseType)
 					{
@@ -347,11 +391,29 @@ namespace UnityCliConnector
 			}
 
 			// Asset path.
-			if (s.StartsWith("Assets/", System.StringComparison.Ordinal) || s == "Assets")
+			if (s.StartsWith("Assets/", System.StringComparison.Ordinal) || s == "Assets"
+				|| s.StartsWith("Packages/", System.StringComparison.Ordinal))
 			{
 				var asset = AssetDatabase.LoadAssetAtPath<Object>(s);
 				if (asset == null)
 					return Result<Object>.Error($"No asset at '{s}'.");
+
+				// Type-check against the field's expected type. Unity will
+				// silently coerce a wrong-typed asset to null on assignment
+				// (e.g. a shader asset on a Material field), so without this
+				// check the user sees `= null` and a "success" — silent data
+				// loss. With the check, the writer rejects up-front with a
+				// readable error pointing at the mismatch.
+				if (!string.IsNullOrEmpty(expected) && expected != "GameObject"
+					&& expected != "PPtr<GameObject>" && expected != "Object" && expected != "UnityEngine.Object")
+				{
+					var expectedType = TypeResolver.ResolveUnityObjectType(expected);
+					if (expectedType != null && !expectedType.IsInstanceOfType(asset))
+					{
+						return Result<Object>.Error(
+							$"Asset at '{s}' is a {asset.GetType().Name}, not assignable to {expectedType.Name}.");
+					}
+				}
 				return Result<Object>.Success(asset);
 			}
 

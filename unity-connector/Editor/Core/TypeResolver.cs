@@ -95,5 +95,53 @@ namespace UnityCliConnector
         {
             return t != null && typeof(Component).IsAssignableFrom(t);
         }
+
+        // Like ResolveComponentType but accepts any UnityEngine.Object subtype
+        // (Material, Texture, Shader, AudioClip, ScriptableObject, ...).
+        // Used by writers that need to type-check an asset path against the
+        // field's declared type — e.g. "is this asset assignable to a
+        // Material field?".
+        public static Type ResolveUnityObjectType(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return null;
+            var trimmed = name.Trim();
+            // Strip the SO-layer `PPtr<$Foo>` wrapper if present.
+            if (trimmed.StartsWith("PPtr<", StringComparison.Ordinal) && trimmed.EndsWith(">"))
+                trimmed = trimmed.Substring(5, trimmed.Length - 6).TrimStart('$');
+
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                var t = asm.GetType(trimmed, throwOnError: false, ignoreCase: false);
+                if (IsUnityObject(t)) return t;
+            }
+            foreach (var prefix in CommonNamespaces)
+            {
+                var qualified = $"{prefix}.{trimmed}";
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    var t = asm.GetType(qualified, throwOnError: false, ignoreCase: false);
+                    if (IsUnityObject(t)) return t;
+                }
+            }
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type[] types;
+                try { types = asm.GetTypes(); }
+                catch (System.Reflection.ReflectionTypeLoadException e) { types = e.Types; }
+                catch { continue; }
+
+                foreach (var t in types)
+                {
+                    if (!IsUnityObject(t)) continue;
+                    if (t.Name == trimmed) return t;
+                }
+            }
+            return null;
+        }
+
+        private static bool IsUnityObject(Type t)
+        {
+            return t != null && typeof(UnityEngine.Object).IsAssignableFrom(t);
+        }
     }
 }
