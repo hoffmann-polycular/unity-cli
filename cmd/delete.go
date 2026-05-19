@@ -41,10 +41,7 @@ import (
 //	find ... --plain | rm     batch mode: delete each path from stdin
 func rmCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	// Pull positional path(s) if given.
-	var positionals []string
-	for _, a := range args {
-		positionals = append(positionals, a)
-	}
+	positionals := append([]string(nil), args...)
 
 	params := map[string]interface{}{}
 
