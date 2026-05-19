@@ -174,7 +174,7 @@ Single long help dump. Useful in `less` but overwhelming on first contact.
 Consider splitting into a short "common commands" overview + `help <topic>`
 for deep dives (which exists, but isn't surfaced).
 
-### 10. `set` on a same-value still creates a prefab override
+### 10. `set` on a same-value still creates a prefab override ✅ FIXED
 
 ```
 $ unity-cli set /Items/Flour:GameObject.tag "Untagged"

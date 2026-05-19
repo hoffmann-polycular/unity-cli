@@ -168,6 +168,7 @@ namespace UnityCliConnector.Tools
 				if (failedProp) continue;
 
 				var oldValue = SerializedPropertyReader.Read(current);
+				var wasOverride = current.prefabOverride;
 
 				Undo.RecordObject(component, $"set {component.GetType().Name}.{Join(parsed.Properties, parsed.Properties.Count)}");
 
@@ -178,6 +179,15 @@ namespace UnityCliConnector.Tools
 				EditorUtility.SetDirty(component);
 
 				var newValue = SerializedPropertyReader.Read(current);
+
+				// No-op override guard: if writing the same value spuriously
+				// created a prefab override (Unity marks any SO write as an
+				// override even when the value didn't change), revert it so
+				// the prefab's override set stays clean.
+				if (!wasOverride && current.prefabOverride && ValuesEqual(oldValue, newValue))
+				{
+					PrefabUtility.RevertPropertyOverride(current, InteractionMode.AutomatedAction);
+				}
 
 				applied.Add(new Dictionary<string, object>
 				{
@@ -405,6 +415,7 @@ namespace UnityCliConnector.Tools
 			}
 
 			var oldValue = SerializedPropertyReader.Read(current);
+			var wasOverride = current.prefabOverride;
 			Undo.RecordObject(component, $"set {component.GetType().Name}.{Join(parsed.Properties, parsed.Properties.Count)}");
 
 			var writeResult = SerializedPropertyWriter.Write(current, rawValue);
@@ -414,6 +425,10 @@ namespace UnityCliConnector.Tools
 			EditorUtility.SetDirty(component);
 
 			var newValue = SerializedPropertyReader.Read(current);
+			if (!wasOverride && current.prefabOverride && ValuesEqual(oldValue, newValue))
+			{
+				PrefabUtility.RevertPropertyOverride(current, InteractionMode.AutomatedAction);
+			}
 			applied.Add(new Dictionary<string, object>
 			{
 				["path"] = PathResolver.GetCanonicalPath(go),
@@ -552,6 +567,43 @@ namespace UnityCliConnector.Tools
 			}
 			return sb.ToString();
 		}
+
+		// Deep-equals helper for the SerializedPropertyReader's JSON-shaped
+		// values: handles primitives, dicts (vectors, colors, ref records),
+		// and lists. Numeric comparison uses an exact equality check after
+		// the int↔long↔double promotion that comes back from the reader.
+		private static bool ValuesEqual(object a, object b)
+		{
+			if (a == null) return b == null;
+			if (b == null) return false;
+			if (a is Dictionary<string, object> da && b is Dictionary<string, object> db)
+			{
+				if (da.Count != db.Count) return false;
+				foreach (var kv in da)
+				{
+					if (!db.TryGetValue(kv.Key, out var bv)) return false;
+					if (!ValuesEqual(kv.Value, bv)) return false;
+				}
+				return true;
+			}
+			if (a is List<object> la && b is List<object> lb)
+			{
+				if (la.Count != lb.Count) return false;
+				for (var i = 0; i < la.Count; i++)
+					if (!ValuesEqual(la[i], lb[i])) return false;
+				return true;
+			}
+			// Number coercion: SerializedPropertyReader emits int / long /
+			// double; compare numerically across the integral / floating gap.
+			if (IsNumber(a) && IsNumber(b))
+				return System.Convert.ToDouble(a) == System.Convert.ToDouble(b);
+			return a.Equals(b);
+		}
+
+		private static bool IsNumber(object o) =>
+			o is int || o is long || o is short || o is byte
+			|| o is uint || o is ulong || o is ushort || o is sbyte
+			|| o is float || o is double || o is decimal;
 
 		private static string Describe(object value)
 		{

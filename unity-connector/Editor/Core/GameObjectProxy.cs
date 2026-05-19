@@ -98,7 +98,12 @@ namespace UnityCliConnector
 				case "name":
 				{
 					var old = go.name;
-					go.name = rawValue?.ToString() ?? "";
+					var requested = rawValue?.ToString() ?? "";
+					// Skip the assignment when nothing would change — avoids
+					// dirtying the GameObject (and registering a prefab
+					// override) for a no-op.
+					if (old == requested) return OkSet(go, "name", old, old);
+					go.name = requested;
 					EditorUtility.SetDirty(go);
 					return OkSet(go, "name", old, go.name);
 				}
@@ -107,6 +112,7 @@ namespace UnityCliConnector
 				{
 					var old = go.tag;
 					var tag = rawValue?.ToString() ?? "Untagged";
+					if (old == tag) return OkSet(go, "tag", old, old);
 					try { go.tag = tag; }
 					catch (System.Exception ex)
 					{
@@ -140,6 +146,7 @@ namespace UnityCliConnector
 									$"Unknown layer '{s}'. Use a layer name or an integer 0–31.");
 						}
 					}
+					if (old == newLayer) return OkSet(go, "layer", old, old);
 					go.layer = newLayer;
 					EditorUtility.SetDirty(go);
 					return OkSet(go, "layer", old, go.layer);
@@ -149,7 +156,9 @@ namespace UnityCliConnector
 				case "active":
 				{
 					var old = go.activeSelf;
-					go.SetActive(ParseBool(rawValue));
+					var newActive = ParseBool(rawValue);
+					if (old == newActive) return OkSet(go, "activeSelf", old, old);
+					go.SetActive(newActive);
 					EditorUtility.SetDirty(go);
 					return OkSet(go, "activeSelf", old, go.activeSelf);
 				}
@@ -157,7 +166,9 @@ namespace UnityCliConnector
 				case "isstatic":
 				{
 					var old = go.isStatic;
-					go.isStatic = ParseBool(rawValue);
+					var newStatic = ParseBool(rawValue);
+					if (old == newStatic) return OkSet(go, "isStatic", old, old);
+					go.isStatic = newStatic;
 					EditorUtility.SetDirty(go);
 					return OkSet(go, "isStatic", old, go.isStatic);
 				}
