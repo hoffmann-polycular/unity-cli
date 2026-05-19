@@ -457,6 +457,17 @@ namespace UnityCliConnector.Tools
 				return new ErrorResponse($"AssetDatabase.FindAssets failed: {ex.Message}");
 			}
 
+			// Strict-by-default --type matching: AssetDatabase.FindAssets's
+			// `t:Material` filter is loose — it also returns shadergraphs
+			// (whose main asset is a Shader but which embed a default
+			// Material). For users typing `find --type Material` the
+			// useful interpretation is "main asset IS-a Material", which
+			// preserves subclass matching (Texture matches Texture2D)
+			// while excluding the surprising cross-asset hits.
+			Type strictType = null;
+			if (!string.IsNullOrEmpty(type))
+				strictType = TypeResolver.ResolveUnityObjectType(type);
+
 			var seen = new HashSet<string>();
 			var assetPaths = new List<string>(guids.Length);
 			foreach (var guid in guids)
@@ -465,6 +476,12 @@ namespace UnityCliConnector.Tools
 				if (string.IsNullOrEmpty(assetPath)) continue;
 				if (!seen.Add(assetPath)) continue;
 				if (pathRegex != null && !pathRegex.IsMatch(assetPath)) continue;
+				if (strictType != null)
+				{
+					var mainType = AssetDatabase.GetMainAssetTypeAtPath(assetPath);
+					if (mainType == null || !strictType.IsAssignableFrom(mainType))
+						continue;
+				}
 				assetPaths.Add(assetPath);
 			}
 
