@@ -260,7 +260,7 @@ namespace UnityCliConnector.Tools
 				var next = PathResolver.FindRelativeByUserName(current, parsed.Properties[i]);
 				if (next == null)
 					return new ErrorResponse(
-						$"No sub-property '{parsed.Properties[i]}' under '{JoinProps(parsed.Properties, i)}'.");
+						$"No sub-property '{parsed.Properties[i]}' under '{PathResolver.JoinPropertyPath(parsed.Properties, i)}'.");
 				current = next;
 			}
 
@@ -354,7 +354,7 @@ namespace UnityCliConnector.Tools
 					var next = PathResolver.FindRelativeByUserName(current, parsed.Properties[i]);
 					if (next == null)
 						return new ErrorResponse(
-							$"No sub-property '{parsed.Properties[i]}' under '{JoinProps(parsed.Properties, i)}'.",
+							$"No sub-property '{parsed.Properties[i]}' under '{PathResolver.JoinPropertyPath(parsed.Properties, i)}'.",
 							ErrorKind.NotFound);
 					current = next;
 				}
@@ -364,13 +364,13 @@ namespace UnityCliConnector.Tools
 					{
 						["path"] = parsed.AssetPath,
 						["component"] = importer.GetType().Name,
-						["property"] = JoinProps(parsed.Properties, parsed.Properties.Count),
+						["property"] = PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count),
 						["type"] = current.propertyType.ToString(),
 						["value"] = value,
 					});
 				var sb = new StringBuilder();
 				sb.Append(parsed.AssetPath).Append(':').Append(importer.GetType().Name)
-				  .Append('.').Append(JoinProps(parsed.Properties, parsed.Properties.Count)).Append('\n');
+				  .Append('.').Append(PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count)).Append('\n');
 				AppendValueHuman(value, sb, depth: 1);
 				return new SuccessResponse("", sb.ToString().TrimEnd('\n'));
 			}
@@ -427,7 +427,7 @@ namespace UnityCliConnector.Tools
 					var next = PathResolver.FindRelativeByUserName(current, parsed.Properties[i]);
 					if (next == null)
 						return new ErrorResponse(
-							$"No sub-property '{parsed.Properties[i]}' under '{JoinProps(parsed.Properties, i)}'.",
+							$"No sub-property '{parsed.Properties[i]}' under '{PathResolver.JoinPropertyPath(parsed.Properties, i)}'.",
 							ErrorKind.NotFound);
 					current = next;
 				}
@@ -436,13 +436,13 @@ namespace UnityCliConnector.Tools
 					return new SuccessResponse("", new Dictionary<string, object>
 					{
 						["path"] = ProjectSettingsResolver.CanonicalPath(parsed.SettingsGroup),
-						["property"] = JoinProps(parsed.Properties, parsed.Properties.Count),
+						["property"] = PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count),
 						["type"] = current.propertyType.ToString(),
 						["value"] = value,
 					});
 				var sb = new StringBuilder();
 				sb.Append(ProjectSettingsResolver.CanonicalPath(parsed.SettingsGroup))
-				  .Append('.').Append(JoinProps(parsed.Properties, parsed.Properties.Count)).Append('\n');
+				  .Append('.').Append(PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count)).Append('\n');
 				AppendValueHuman(value, sb, depth: 1);
 				return new SuccessResponse("", sb.ToString().TrimEnd('\n'));
 			}
@@ -640,7 +640,7 @@ namespace UnityCliConnector.Tools
 			SerializedProperty prop, string format)
 		{
 			var value = SerializedPropertyReader.Read(prop);
-			var joined = JoinProps(propPath, propPath.Count);
+			var joined = PathResolver.JoinPropertyPath(propPath, propPath.Count);
 
 			if (format == "json")
 			{
@@ -750,16 +750,6 @@ namespace UnityCliConnector.Tools
 			return sb.ToString();
 		}
 
-		private static string JoinProps(List<string> parts, int count)
-		{
-			var sb = new StringBuilder();
-			for (var i = 0; i < count; i++)
-			{
-				if (i > 0) sb.Append('.');
-				sb.Append(parts[i]);
-			}
-			return sb.ToString();
-		}
 
 		// Stringify hierarchy segments (post `//`) back to a slash-joined
 		// form — `[{Name=Hat}, {Name=Tip,Index=1}]` → "Hat/Tip[1]". Used to

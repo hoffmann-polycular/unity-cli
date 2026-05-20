@@ -469,16 +469,16 @@ namespace UnityCliConnector.Tools
 				var next = PathResolver.FindRelativeByUserName(current, parsed.Properties[i]);
 				if (next == null)
 					return new ErrorResponse(
-						$"No sub-property '{parsed.Properties[i]}' under '{JoinProps(parsed.Properties, i)}'.");
+						$"No sub-property '{parsed.Properties[i]}' under '{PathResolver.JoinPropertyPath(parsed.Properties, i)}'.");
 				current = next;
 			}
 
 			if (isApply && !current.prefabOverride)
 				return new ErrorResponse(
-					$"Property '{JoinProps(parsed.Properties, parsed.Properties.Count)}' has no override to apply.");
+					$"Property '{PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count)}' has no override to apply.");
 			if (!isApply && !current.prefabOverride)
 				return new ErrorResponse(
-					$"Property '{JoinProps(parsed.Properties, parsed.Properties.Count)}' has no override to revert.");
+					$"Property '{PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count)}' has no override to revert.");
 
 			try
 			{
@@ -493,7 +493,7 @@ namespace UnityCliConnector.Tools
 			}
 
 			return Done(verb, "property",
-				$"{PathResolver.GetCanonicalPath(go)}:{component.GetType().Name}.{JoinProps(parsed.Properties, parsed.Properties.Count)}",
+				$"{PathResolver.GetCanonicalPath(go)}:{component.GetType().Name}.{PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count)}",
 				assetPath, format);
 		}
 
@@ -961,16 +961,6 @@ namespace UnityCliConnector.Tools
 			return goPath;
 		}
 
-		private static string JoinProps(List<string> parts, int count)
-		{
-			var sb = new StringBuilder();
-			for (var i = 0; i < count; i++)
-			{
-				if (i > 0) sb.Append('.');
-				sb.Append(parts[i]);
-			}
-			return sb.ToString();
-		}
 
 		private static string FormatValue(object value)
 		{

@@ -376,7 +376,7 @@ namespace UnityCliConnector.Tools
 				var next = PathResolver.FindRelativeByUserName(current, parsed.Properties[i]);
 				if (next == null)
 					return new ErrorResponse(
-						$"No sub-property '{parsed.Properties[i]}' under '{JoinProps(parsed.Properties, i)}'.");
+						$"No sub-property '{parsed.Properties[i]}' under '{PathResolver.JoinPropertyPath(parsed.Properties, i)}'.");
 				current = next;
 			}
 
@@ -388,7 +388,7 @@ namespace UnityCliConnector.Tools
 				{
 					["path"] = PathResolver.GetCanonicalPath(go),
 					["component"] = component.GetType().Name,
-					["property"] = JoinProps(parsed.Properties, parsed.Properties.Count),
+					["property"] = PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count),
 					["type"] = current.propertyType.ToString(),
 					["override"] = current.prefabOverride,
 					["source"] = sourceMode,
@@ -421,7 +421,7 @@ namespace UnityCliConnector.Tools
 				var next = PathResolver.FindRelativeByUserName(current, parsed.Properties[i]);
 				if (next == null)
 					return new ErrorResponse(
-						$"No sub-property '{parsed.Properties[i]}' under '{JoinProps(parsed.Properties, i)}'.",
+						$"No sub-property '{parsed.Properties[i]}' under '{PathResolver.JoinPropertyPath(parsed.Properties, i)}'.",
 						ErrorKind.NotFound);
 				current = next;
 			}
@@ -433,7 +433,7 @@ namespace UnityCliConnector.Tools
 				{
 					["path"] = parsed.AssetPath,
 					["component"] = importer.GetType().Name,
-					["property"] = JoinProps(parsed.Properties, parsed.Properties.Count),
+					["property"] = PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count),
 					["type"] = current.propertyType.ToString(),
 					["value"] = value,
 				});
@@ -465,7 +465,7 @@ namespace UnityCliConnector.Tools
 				var next = PathResolver.FindRelativeByUserName(current, parsed.Properties[i]);
 				if (next == null)
 					return new ErrorResponse(
-						$"No sub-property '{parsed.Properties[i]}' under '{JoinProps(parsed.Properties, i)}'.",
+						$"No sub-property '{parsed.Properties[i]}' under '{PathResolver.JoinPropertyPath(parsed.Properties, i)}'.",
 						ErrorKind.NotFound);
 				current = next;
 			}
@@ -476,7 +476,7 @@ namespace UnityCliConnector.Tools
 				return new SuccessResponse("", new Dictionary<string, object>
 				{
 					["path"] = ProjectSettingsResolver.CanonicalPath(parsed.SettingsGroup),
-					["property"] = JoinProps(parsed.Properties, parsed.Properties.Count),
+					["property"] = PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count),
 					["type"] = current.propertyType.ToString(),
 					["value"] = value,
 				});
@@ -575,15 +575,5 @@ namespace UnityCliConnector.Tools
 				if (dict.ContainsKey(k)) yield return k;
 		}
 
-		private static string JoinProps(List<string> parts, int count)
-		{
-			var sb = new StringBuilder();
-			for (var i = 0; i < count; i++)
-			{
-				if (i > 0) sb.Append('.');
-				sb.Append(parts[i]);
-			}
-			return sb.ToString();
-		}
 	}
 }

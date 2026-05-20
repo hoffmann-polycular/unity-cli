@@ -560,6 +560,21 @@ namespace UnityCliConnector
 		{
 			if (parent == null || string.IsNullOrEmpty(userName)) return null;
 
+			// Array indexing: "[N]" steps into the Nth element of the parent
+			// array. PathParser guarantees N is a non-negative int when the
+			// segment passed through SplitPropertyPath, but be defensive in
+			// case a caller hands us a hand-built segment.
+			if (userName.Length >= 3 && userName[0] == '[' && userName[userName.Length - 1] == ']')
+			{
+				var idxStr = userName.Substring(1, userName.Length - 2);
+				if (!int.TryParse(idxStr, out var idx) || idx < 0) return null;
+				// Resolve user-friendly aliases that name an array (e.g.
+				// `sharedMaterials` → `m_Materials`) before indexing them.
+				if (!parent.isArray) return null;
+				if (idx >= parent.arraySize) return null;
+				return parent.GetArrayElementAtIndex(idx);
+			}
+
 			var direct = parent.FindPropertyRelative(userName);
 			if (direct != null) return direct;
 
@@ -608,6 +623,26 @@ namespace UnityCliConnector
 				case "materials":      return "m_Materials";
 				default: return null;
 			}
+		}
+
+		/// <summary>
+		/// Joins property segments back into their canonical user-facing
+		/// dotted form, preserving bracketed array indices without a
+		/// preceding dot (e.g. ["arr","[0]","field"] → "arr[0].field",
+		/// not "arr.[0].field"). The inverse of PathParser.SplitPropertyPath.
+		/// `count` lets callers join just a prefix for error messages.
+		/// </summary>
+		public static string JoinPropertyPath(List<string> parts, int count)
+		{
+			var sb = new System.Text.StringBuilder();
+			for (var i = 0; i < count; i++)
+			{
+				var seg = parts[i];
+				if (i > 0 && !(seg.Length > 0 && seg[0] == '['))
+					sb.Append('.');
+				sb.Append(seg);
+			}
+			return sb.ToString();
 		}
 
 		public static string NormalizeSerializedName(string name)

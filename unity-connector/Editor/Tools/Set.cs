@@ -122,7 +122,7 @@ namespace UnityCliConnector.Tools
 			// reverses the whole operation.
 			var undoGroup = Undo.GetCurrentGroup();
 			Undo.IncrementCurrentGroup();
-			Undo.SetCurrentGroupName($"set {parsed.Component.TypeName}.{Join(parsed.Properties, parsed.Properties.Count)}");
+			Undo.SetCurrentGroupName($"set {parsed.Component.TypeName}.{PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count)}");
 
 			foreach (var go in targets)
 			{
@@ -159,7 +159,7 @@ namespace UnityCliConnector.Tools
 					var next = PathResolver.FindRelativeByUserName(current, parsed.Properties[i]);
 					if (next == null)
 					{
-						errors.Add($"{PathResolver.GetCanonicalPath(go)}: no sub-property '{parsed.Properties[i]}' under '{Join(parsed.Properties, i)}'.");
+						errors.Add($"{PathResolver.GetCanonicalPath(go)}: no sub-property '{parsed.Properties[i]}' under '{PathResolver.JoinPropertyPath(parsed.Properties, i)}'.");
 						failedProp = true;
 						break;
 					}
@@ -170,7 +170,7 @@ namespace UnityCliConnector.Tools
 				var oldValue = SerializedPropertyReader.Read(current);
 				var wasOverride = current.prefabOverride;
 
-				Undo.RecordObject(component, $"set {component.GetType().Name}.{Join(parsed.Properties, parsed.Properties.Count)}");
+				Undo.RecordObject(component, $"set {component.GetType().Name}.{PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count)}");
 
 				var writeResult = SerializedPropertyWriter.Write(current, rawValue);
 				if (!writeResult.IsSuccess) { errors.Add($"{PathResolver.GetCanonicalPath(go)}: {writeResult.ErrorMessage}"); continue; }
@@ -193,7 +193,7 @@ namespace UnityCliConnector.Tools
 				{
 					["path"] = PathResolver.GetCanonicalPath(go),
 					["component"] = component.GetType().Name,
-					["property"] = Join(parsed.Properties, parsed.Properties.Count),
+					["property"] = PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count),
 					["type"] = current.propertyType.ToString(),
 					["oldValue"] = oldValue,
 					["newValue"] = newValue,
@@ -408,7 +408,7 @@ namespace UnityCliConnector.Tools
 				var next = PathResolver.FindRelativeByUserName(current, parsed.Properties[i]);
 				if (next == null)
 				{
-					errors.Add($"{PathResolver.GetCanonicalPath(go)}: no sub-property '{parsed.Properties[i]}' under '{Join(parsed.Properties, i)}'.");
+					errors.Add($"{PathResolver.GetCanonicalPath(go)}: no sub-property '{parsed.Properties[i]}' under '{PathResolver.JoinPropertyPath(parsed.Properties, i)}'.");
 					return;
 				}
 				current = next;
@@ -416,7 +416,7 @@ namespace UnityCliConnector.Tools
 
 			var oldValue = SerializedPropertyReader.Read(current);
 			var wasOverride = current.prefabOverride;
-			Undo.RecordObject(component, $"set {component.GetType().Name}.{Join(parsed.Properties, parsed.Properties.Count)}");
+			Undo.RecordObject(component, $"set {component.GetType().Name}.{PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count)}");
 
 			var writeResult = SerializedPropertyWriter.Write(current, rawValue);
 			if (!writeResult.IsSuccess) { errors.Add($"{PathResolver.GetCanonicalPath(go)}: {writeResult.ErrorMessage}"); return; }
@@ -433,7 +433,7 @@ namespace UnityCliConnector.Tools
 			{
 				["path"] = PathResolver.GetCanonicalPath(go),
 				["component"] = component.GetType().Name,
-				["property"] = Join(parsed.Properties, parsed.Properties.Count),
+				["property"] = PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count),
 				["type"] = current.propertyType.ToString(),
 				["oldValue"] = oldValue,
 				["newValue"] = newValue,
@@ -472,14 +472,14 @@ namespace UnityCliConnector.Tools
 				var next = PathResolver.FindRelativeByUserName(current, parsed.Properties[i]);
 				if (next == null)
 					return new ErrorResponse(
-						$"No sub-property '{parsed.Properties[i]}' under '{Join(parsed.Properties, i)}'.",
+						$"No sub-property '{parsed.Properties[i]}' under '{PathResolver.JoinPropertyPath(parsed.Properties, i)}'.",
 						ErrorKind.NotFound);
 				current = next;
 			}
 
 			var oldValue = SerializedPropertyReader.Read(current);
 
-			Undo.RecordObject(importer, $"set {importer.GetType().Name}.{Join(parsed.Properties, parsed.Properties.Count)}");
+			Undo.RecordObject(importer, $"set {importer.GetType().Name}.{PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count)}");
 			var writeResult = SerializedPropertyWriter.Write(current, rawValue);
 			if (!writeResult.IsSuccess) return ErrorResponse.FromResult(writeResult);
 
@@ -494,12 +494,12 @@ namespace UnityCliConnector.Tools
 			AssetDatabase.WriteImportSettingsIfDirty(parsed.AssetPath);
 
 			return new SuccessResponse(
-				$"{parsed.AssetPath}:{importer.GetType().Name}.{Join(parsed.Properties, parsed.Properties.Count)} = {Describe(newValue)}",
+				$"{parsed.AssetPath}:{importer.GetType().Name}.{PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count)} = {Describe(newValue)}",
 				new Dictionary<string, object>
 				{
 					["path"] = parsed.AssetPath,
 					["component"] = importer.GetType().Name,
-					["property"] = Join(parsed.Properties, parsed.Properties.Count),
+					["property"] = PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count),
 					["type"] = propertyType,
 					["oldValue"] = oldValue,
 					["newValue"] = newValue,
@@ -529,13 +529,13 @@ namespace UnityCliConnector.Tools
 				var next = PathResolver.FindRelativeByUserName(current, parsed.Properties[i]);
 				if (next == null)
 					return new ErrorResponse(
-						$"No sub-property '{parsed.Properties[i]}' under '{Join(parsed.Properties, i)}'.",
+						$"No sub-property '{parsed.Properties[i]}' under '{PathResolver.JoinPropertyPath(parsed.Properties, i)}'.",
 						ErrorKind.NotFound);
 				current = next;
 			}
 
 			var oldValue = SerializedPropertyReader.Read(current);
-			Undo.RecordObject(so.targetObject, $"set ProjectSettings/{parsed.SettingsGroup}.{Join(parsed.Properties, parsed.Properties.Count)}");
+			Undo.RecordObject(so.targetObject, $"set ProjectSettings/{parsed.SettingsGroup}.{PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count)}");
 
 			var writeResult = SerializedPropertyWriter.Write(current, rawValue);
 			if (!writeResult.IsSuccess) return ErrorResponse.FromResult(writeResult);
@@ -546,27 +546,17 @@ namespace UnityCliConnector.Tools
 
 			var newValue = SerializedPropertyReader.Read(current);
 			return new SuccessResponse(
-				$"{ProjectSettingsResolver.CanonicalPath(parsed.SettingsGroup)}.{Join(parsed.Properties, parsed.Properties.Count)} = {Describe(newValue)}",
+				$"{ProjectSettingsResolver.CanonicalPath(parsed.SettingsGroup)}.{PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count)} = {Describe(newValue)}",
 				new Dictionary<string, object>
 				{
 					["path"] = ProjectSettingsResolver.CanonicalPath(parsed.SettingsGroup),
-					["property"] = Join(parsed.Properties, parsed.Properties.Count),
+					["property"] = PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count),
 					["type"] = current.propertyType.ToString(),
 					["oldValue"] = oldValue,
 					["newValue"] = newValue,
 				});
 		}
 
-		private static string Join(List<string> parts, int count)
-		{
-			var sb = new System.Text.StringBuilder();
-			for (var i = 0; i < count; i++)
-			{
-				if (i > 0) sb.Append('.');
-				sb.Append(parts[i]);
-			}
-			return sb.ToString();
-		}
 
 		// Deep-equals helper for the SerializedPropertyReader's JSON-shaped
 		// values: handles primitives, dicts (vectors, colors, ref records),

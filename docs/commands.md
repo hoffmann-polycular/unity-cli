@@ -286,6 +286,12 @@ unity-cli set /World/Player:MeshRenderer.material Assets/Materials/Metal.mat
 unity-cli set /World/Enemy:AIScript.target /World/Player
 unity-cli set /World/Enemy:AIScript.target null
 
+# Array elements: `[N]` indexes into an array property. The same form
+# works inside `get` and `inspect`. Mixes freely with nested fields.
+unity-cli set /World/Cube:MeshRenderer.sharedMaterials[1] Assets/Materials/Red.mat
+unity-cli set /World/Enemy:Loot.drops[0].chance 0.5
+unity-cli get  /World/Cube:MeshRenderer.sharedMaterials[0]
+
 # Copy position from one object to another
 unity-cli get /World/A:Transform.position | unity-cli set /World/B:Transform.position
 

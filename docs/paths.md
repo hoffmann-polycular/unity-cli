@@ -54,7 +54,8 @@ anchor      = ''                          # bare → selection-relative
 segments    = segment ('/' segment)*
 segment     = name ('[' index ']')?
 component   = ':' typename ('[' index ']')?
-property    = '.' ident ('.' ident)*
+property    = '.' propSeg ('.' propSeg)*
+propSeg     = ident ('[' index ']')*    # name with optional array indices
 ```
 
 ---

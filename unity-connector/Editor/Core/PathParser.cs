@@ -344,16 +344,79 @@ namespace UnityCliConnector
 
                 if (!string.IsNullOrEmpty(propertyPart))
                 {
-                    foreach (var prop in propertyPart.Split('.'))
-                    {
-                        if (string.IsNullOrEmpty(prop))
-                            return Result<ParsedPath>.Error($"Empty property segment in '{parsed.Raw}'.");
-                        parsed.Properties.Add(prop);
-                    }
+                    var segResult = SplitPropertyPath(propertyPart);
+                    if (!segResult.IsSuccess)
+                        return Result<ParsedPath>.Error($"{segResult.ErrorMessage} in '{parsed.Raw}'.");
+                    parsed.Properties = segResult.Value;
                 }
             }
 
             return Result<ParsedPath>.Success(parsed);
+        }
+
+        /// <summary>
+        /// Tokenizes the property part of a path into a flat list of segments,
+        /// recognizing both dot-separated names and bracketed array indices.
+        ///
+        /// Examples:
+        ///   "sharedMaterials[0]"      → ["sharedMaterials", "[0]"]
+        ///   "arr[3].field"            → ["arr", "[3]", "field"]
+        ///   "grid[2][7].name"         → ["grid", "[2]", "[7]", "name"]
+        ///   "position.x"              → ["position", "x"]
+        ///
+        /// Index segments are stored verbatim with the brackets ("[N]") so
+        /// downstream code can distinguish them from name segments cheaply.
+        /// </summary>
+        public static Result<List<string>> SplitPropertyPath(string propertyPart)
+        {
+            var result = new List<string>();
+            int i = 0;
+            int n = propertyPart.Length;
+            bool expectName = true; // start of input or just after '.' expects a name
+
+            while (i < n)
+            {
+                char c = propertyPart[i];
+
+                if (c == '.')
+                {
+                    if (expectName)
+                        return Result<List<string>>.Error("empty property segment");
+                    expectName = true;
+                    i++;
+                    continue;
+                }
+
+                if (c == '[')
+                {
+                    int close = propertyPart.IndexOf(']', i + 1);
+                    if (close < 0)
+                        return Result<List<string>>.Error("unclosed '[' in property path");
+                    var idxStr = propertyPart.Substring(i + 1, close - i - 1);
+                    if (idxStr.Length == 0)
+                        return Result<List<string>>.Error("empty array index '[]'");
+                    if (!int.TryParse(idxStr, out var idx) || idx < 0)
+                        return Result<List<string>>.Error($"invalid array index '[{idxStr}]'");
+                    result.Add("[" + idx + "]");
+                    i = close + 1;
+                    expectName = false;
+                    continue;
+                }
+
+                // Name: read until '.', '[', or end.
+                int start = i;
+                while (i < n && propertyPart[i] != '.' && propertyPart[i] != '[') i++;
+                if (i == start)
+                    return Result<List<string>>.Error("empty property segment");
+                result.Add(propertyPart.Substring(start, i - start));
+                expectName = false;
+            }
+
+            if (expectName)
+                return Result<List<string>>.Error("trailing '.' in property path");
+            if (result.Count == 0)
+                return Result<List<string>>.Error("empty property path");
+            return Result<List<string>>.Success(result);
         }
 
         private static Result<ParsedPath> ParseAsset(string trimmed, ParsedPath parsed)
