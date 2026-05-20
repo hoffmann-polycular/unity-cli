@@ -23,6 +23,9 @@ func main() {
 		os.Exit(exit.OK)
 	}
 	if cliErr, ok := err.(*exit.CLIError); ok {
+		if cliErr == nil {
+			os.Exit(exit.OK)
+		}
 		if cliErr.Msg != "" {
 			fmt.Fprintf(os.Stderr, "Error: %s\n", cliErr.Msg)
 		}
