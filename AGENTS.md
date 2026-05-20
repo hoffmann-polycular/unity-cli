@@ -72,6 +72,7 @@ from a local working copy.
 
 ## Rules
 
+- **Windows / Git Bash:** Git Bash (MSYS2) rewrites arguments that start with `/` as Windows paths before the binary sees them. `MSYS_NO_PATHCONV=1` must be exported in the shell session, otherwise every scene path will be mangled.
 - **Execution:** Use the installed `unity-cli` binary. `go run .` is for testing only.
 - **Interactive mode:** `unity-cli interactive` opens a REPL; can not be used by agents that cant use interactive terminal sessions. users can drop the `unity-cli` prefix and pipe with `|` (segments without prefix are dispatched internally; `!cmd` shells out for grep/jq/etc).
 - **Git:** Commit all unstaged changes before finishing. Unrelated changes go in separate commits.

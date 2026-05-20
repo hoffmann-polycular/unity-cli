@@ -16,6 +16,16 @@ curl -fsSL https://raw.githubusercontent.com/hoffmann-polycular/unity-cli/main/i
 irm https://raw.githubusercontent.com/hoffmann-polycular/unity-cli/main/install.ps1 | iex
 ```
 
+### Windows — Git Bash note
+
+unity-cli paths start with `/` (e.g. `/World/Player`). Git Bash (MSYS2) treats leading slashes as Unix paths and rewrites them to Windows paths before the binary ever sees them. Set this variable to disable that conversion:
+
+```bash
+export MSYS_NO_PATHCONV=1
+```
+
+Add it to `~/.bashrc` or `~/.bash_profile` to make it permanent.
+
 ### Go install
 
 ```bash

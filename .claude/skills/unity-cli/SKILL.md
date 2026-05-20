@@ -283,6 +283,7 @@ unity-cli find Assets/Sprites/ --type Texture2D --plain | \
 
 ## Common Mistakes
 
+- **Windows / Git Bash path mangling**: Git Bash (MSYS2) rewrites arguments starting with `/` into Windows paths before the binary sees them, so `/World/Player` becomes something like `C:/Program Files/Git/World/Player`. The user must export `MSYS_NO_PATHCONV=1` in their shell session (add to `~/.bashrc` to make it permanent). If commands fail with unexpected path errors on Windows Git Bash, check this first.
 - **Path separator**: always `/`, never `\`.
 - **`get`/`set` without a property**: `:Rigidbody` without `.mass` returns the object path, not a value. Always include `:Component.property`.
 - **Duplicate sibling names**: use `[0]`, `[1]` to disambiguate — e.g. `/World/Enemy[1]`.
