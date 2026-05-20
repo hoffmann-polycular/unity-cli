@@ -46,6 +46,20 @@ CLI (Go) and Connector (C#) must always share the same release version. Three fi
 
 The CLI validates the connector version at startup and errors if they differ.
 
+A `go test ./cmd/...` assertion (`TestConnectorVersionsInSync`) compares
+`package.json` against `Heartbeat.cs` on every CI run so drift is caught
+before release.
+
+### Init from dev builds
+
+`unity-cli init` pins the connector to a git tag matching the CLI's own
+release version, so the two always agree by construction. Dev builds
+(`main.Version == "dev"`) have no tag to point at — they refuse the git
+install and require `--local <path-to-unity-connector-checkout>`
+instead, which writes a `file:` reference into `Packages/manifest.json`.
+This is also the way to install the connector while iterating on it
+from a local working copy.
+
 ## Release Flow
 
 1. Run all verification steps

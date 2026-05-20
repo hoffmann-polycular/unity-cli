@@ -99,6 +99,8 @@ func Execute() error {
 		return completeDispatchCmd(subArgs)
 	case "update":
 		return updateCmd(subArgs)
+	case "init":
+		return initCmd(subArgs)
 	case "status":
 		inst, err := discoverStatusInstance(flagProject, flagPort)
 		if err != nil {
@@ -468,6 +470,8 @@ Diagnostics
 Tooling
   completion bash|zsh|fish|powershell
   update [--check]
+  init [<project>] [--local <path>] [--upgrade] [--uninstall] [--wait]
+                              install the connector UPM package into a project
   help <command>              detailed reference for one command
 
 Global flags
@@ -1426,6 +1430,44 @@ Options:
 Examples:
   unity-cli update
   unity-cli update --check
+`)
+	case "init":
+		fmt.Print(`Usage: unity-cli init [<project-path>] [options]
+
+Install the unity-cli connector UPM package into a Unity project by
+adding it to Packages/manifest.json. Works against the filesystem only,
+so the Editor does not need to be running.
+
+Project discovery:
+  - Positional <project-path>, OR
+  - --project <path> global flag, OR
+  - walk up from the current directory looking for a Unity project
+    signature (a folder with both ProjectSettings/ and Packages/).
+
+Source (chosen automatically):
+  - Release CLI builds pin to a git tag matching the CLI's own version,
+    so the connector version always matches unity-cli.
+  - Dev CLI builds (Version == "dev") have no tag to point at and
+    refuse to install via git. Pass --local <path> instead.
+
+Options:
+  --local <path>        Install from a local checkout instead of git.
+                        Writes a "file:" reference. Use this for working
+                        on the connector itself.
+  --upgrade             Allow rewriting an existing dependency entry.
+  --uninstall           Remove the connector dependency. Mutually
+                        exclusive with --upgrade and --local.
+  --wait                After editing the manifest, poll until the
+                        connector's heartbeat appears (Unity must be
+                        opened or focused). Bounded by --timeout.
+
+Examples:
+  unity-cli init                                # cwd is a Unity project
+  unity-cli init ~/projects/MyGame              # positional project path
+  unity-cli init --wait                         # wait for first heartbeat
+  unity-cli init --upgrade                      # bump the pinned version
+  unity-cli init --local ../unity-cli/unity-connector
+  unity-cli init --uninstall
 `)
 	case "completion":
 		fmt.Print(`Usage: unity-cli completion <bash|zsh|fish|powershell>

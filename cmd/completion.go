@@ -162,7 +162,7 @@ var topLevelCommands = []string{
 	"component", "select", "create", "rm", "cp", "mv", "reorder",
 	"prefab", "scene", "console", "menu", "screenshot", "reserialize", "reimport",
 	"guid", "path",
-	"profiler", "status", "list", "update", "version", "help", "completion",
+	"profiler", "status", "list", "update", "init", "version", "help", "completion",
 }
 
 var subcommands = map[string][]string{
@@ -172,7 +172,7 @@ var subcommands = map[string][]string{
 	"component":  {"list", "add", "remove"},
 	"profiler":   {"hierarchy", "enable", "disable", "status", "clear"},
 	"completion": {"bash", "zsh", "fish", "powershell"},
-	"help":       {"editor", "ls", "find", "inspect", "get", "set", "component", "select", "create", "rm", "cp", "mv", "reorder", "prefab", "scene", "console", "menu", "exec", "screenshot", "reserialize", "profiler", "test", "status", "list", "update", "custom-tools", "setup"},
+	"help":       {"editor", "ls", "find", "inspect", "get", "set", "component", "select", "create", "rm", "cp", "mv", "reorder", "prefab", "scene", "console", "menu", "exec", "screenshot", "reserialize", "profiler", "test", "status", "list", "update", "init", "custom-tools", "setup"},
 }
 
 var primitiveTypes = []string{
@@ -235,6 +235,7 @@ var commandFlags = map[string][]string{
 	"path":       {"--json"},
 	"test":       {"--mode", "--filter"},
 	"exec":       {"--usings", "--csc", "--dotnet"},
+	"init":       {"--local", "--upgrade", "--uninstall", "--wait"},
 	"editor":     {"--wait", "--compile"},
 	"update":     {"--check"},
 }
@@ -424,6 +425,7 @@ var knownBooleanFlags = map[string]bool{
 	"--check": true, "--completely": true, "--discard": true,
 	"--auto-suffix": true, "--help": true,
 	"--first": true, "--last": true,
+	"--upgrade": true, "--uninstall": true,
 }
 
 func isKnownBooleanFlag(flag string) bool {

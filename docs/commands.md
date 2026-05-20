@@ -27,7 +27,7 @@ All commands with their options and examples. Use `unity-cli <command> --help` f
 [editor](#editor) · [console](#console) · [exec](#exec) · [test](#test) · [menu](#menu) · [screenshot](#screenshot) · [profiler](#profiler)
 
 **Tooling**
-[status](#status) · [list](#list) · [completion](#completion) · [update](#update) · [Custom tools](#custom-tools)
+[status](#status) · [list](#list) · [completion](#completion) · [update](#update) · [init](#init) · [Custom tools](#custom-tools)
 
 ---
 
@@ -1121,6 +1121,57 @@ unity-cli update [--check]
 ```
 
 - `--check` — check for a newer version without installing.
+
+---
+
+## init
+
+Install (or remove) the unity-cli connector UPM package in a Unity project by editing `Packages/manifest.json` directly. Works against the filesystem only — the Editor does not need to be running.
+
+```
+unity-cli init [<project-path>] [--local <path>] [--upgrade] [--uninstall] [--wait]
+```
+
+**Project discovery:**
+- Positional `<project-path>` if given.
+- Otherwise the global `--project <path>` flag.
+- Otherwise walks up from the current directory looking for a Unity project signature (a folder containing both `ProjectSettings/` and `Packages/`).
+
+**Source:**
+- Release CLI builds pin the connector to a git tag matching the CLI's own version, so the connector version always matches `unity-cli` by construction. The dependency value written is:
+  ```
+  https://github.com/hoffmann-polycular/unity-cli.git?path=unity-connector#vX.Y.Z
+  ```
+- Dev CLI builds (`Version == "dev"`) refuse the git install — there is no tag to pin to. Use `--local` instead.
+
+**Options:**
+- `--local <path>` — install from a local checkout. Writes `file:<abs-path>` into the manifest. Use this when iterating on the connector itself, or from a dev build of `unity-cli`.
+- `--upgrade` — required to rewrite an existing dependency entry. Without it, `init` refuses to overwrite and prints the existing source.
+- `--uninstall` — remove the connector dependency. Mutually exclusive with `--upgrade` and `--local`.
+- `--wait` — after editing the manifest, poll until a heartbeat from this project appears (Unity has to be opened/focused so it imports the package), then run the standard connector-version check. Bounded by the global `--timeout`. Useful in scripts and for agents.
+
+**Examples:**
+```bash
+# Install into the project at the current working directory
+unity-cli init
+
+# Install into a project elsewhere
+unity-cli init ~/projects/MyGame
+
+# Install and block until the connector is online and version-matched
+unity-cli init --wait
+
+# Bump a previously installed connector to whatever version this CLI is
+unity-cli init --upgrade
+
+# Dev-loop: install from a sibling checkout, no git involved
+unity-cli init --local ../unity-cli/unity-connector
+
+# Remove the connector cleanly
+unity-cli init --uninstall
+```
+
+Idempotency: re-running `init` with the same target source is a no-op (prints the existing value and exits 0). Re-running with a different desired source requires `--upgrade`.
 
 ---
 
