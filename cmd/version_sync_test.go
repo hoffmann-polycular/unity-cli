@@ -110,6 +110,39 @@ func readPackageJSONVersion(t *testing.T, path string) string {
 	return manifest.Version
 }
 
+// TestFlakeVersionsInSync asserts that both version occurrences inside
+// flake.nix — the package `version` attribute and the `-X main.Version=`
+// ldflag — match the canonical version in unity-connector/package.json.
+func TestFlakeVersionsInSync(t *testing.T) {
+	repoRoot := findRepoRoot(t)
+	pkgVersion := readPackageJSONVersion(t, filepath.Join(repoRoot, "unity-connector", "package.json"))
+
+	data, err := os.ReadFile(filepath.Join(repoRoot, "flake.nix"))
+	if err != nil {
+		t.Fatalf("read flake.nix: %v", err)
+	}
+	src := string(data)
+
+	flakeVersion := extractFlakeField(t, src, `version\s*=\s*"([^"]+)"`, "version")
+	ldflagVersion := extractFlakeField(t, src, `-X\s+main\.Version=([^"\s]+)`, "-X main.Version")
+
+	if flakeVersion != pkgVersion {
+		t.Errorf("flake.nix version %q != package.json %q", flakeVersion, pkgVersion)
+	}
+	if ldflagVersion != pkgVersion {
+		t.Errorf("flake.nix ldflag -X main.Version=%q != package.json %q", ldflagVersion, pkgVersion)
+	}
+}
+
+func extractFlakeField(t *testing.T, src, pattern, label string) string {
+	t.Helper()
+	m := regexp.MustCompile(pattern).FindStringSubmatch(src)
+	if m == nil {
+		t.Fatalf("could not find %q in flake.nix", label)
+	}
+	return m[1]
+}
+
 // heartbeatVersionRe extracts the literal from:
 //
 //	const string CONNECTOR_VERSION = "0.3.18";
