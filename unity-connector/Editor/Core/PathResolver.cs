@@ -393,11 +393,25 @@ namespace UnityCliConnector
 		public static string GetCanonicalPath(GameObject go)
 		{
 			if (go == null) return "";
+
+			// Stop walking up at the prefab-contents-root when in prefab mode.
+			// Unity wraps the contents-root in an invisible `(Environment)`
+			// helper that has its own transform parent; walking past the root
+			// would emit a canonical path the resolver cannot consume, since
+			// the walker's entry points are the prefab-contents-root and the
+			// (Environment) wrapper is never one of them. Scene mode has no
+			// wrapper — scene-root transforms have a null parent and the loop
+			// stops naturally.
+			GameObject stopAt = null;
+			var prefabRoots = GetPrefabRoots();
+			if (prefabRoots.Count > 0) stopAt = prefabRoots[0];
+
 			var stack = new Stack<string>();
 			var t = go.transform;
 			while (t != null)
 			{
 				stack.Push(BuildSegment(t.gameObject));
+				if (stopAt != null && t.gameObject == stopAt) break;
 				t = t.parent;
 			}
 			return "/" + string.Join("/", stack);
