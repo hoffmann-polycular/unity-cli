@@ -72,7 +72,8 @@ from a local working copy.
 
 ## Rules
 
-- **Windows / Git Bash:** Git Bash (MSYS2) rewrites arguments that start with `/` as Windows paths before the binary sees them. `MSYS_NO_PATHCONV=1` must be exported in the shell session, otherwise every scene path will be mangled.
+- **Windows / Git Bash:** Git Bash (MSYS2) rewrites arguments that start with `/` as Windows paths before the binary sees them. Run `export MSYS_NO_PATHCONV=1` once at the start of a session (or add it to `~/.bashrc`). Do **not** prepend `MSYS_NO_PATHCONV=1` to every individual command. 
+- **`exec` is a last resort:** `unity-cli exec` evaluates arbitrary C# and exists for cases nothing else covers. Prefer the purpose-built subcommands (`get`, `set`, `find`, `component`, `scene`, …) and compose them with pipes and standard shell tools (`jq`, `grep`, `xargs`). Only reach for `exec` when the task genuinely cannot be expressed through the available commands.
 - **Execution:** Use the installed `unity-cli` binary. `go run .` is for testing only.
 - **Interactive mode:** `unity-cli interactive` opens a REPL; can not be used by agents that cant use interactive terminal sessions. users can drop the `unity-cli` prefix and pipe with `|` (segments without prefix are dispatched internally; `!cmd` shells out for grep/jq/etc).
 - **Git:** Commit all unstaged changes before finishing. Unrelated changes go in separate commits.

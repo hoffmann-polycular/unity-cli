@@ -195,9 +195,6 @@ unity-cli editor refresh --compile    # reimport + wait for script compilation
 unity-cli console --type error,warning --stacktrace user --lines 20
 unity-cli console --clear
 
-unity-cli exec "return Camera.main.transform.position.ToString();"
-unity-cli exec "Selection.activeGameObject.name = \"Renamed\";"
-
 unity-cli menu "File/Save Project"
 
 unity-cli test --mode EditMode
@@ -205,6 +202,11 @@ unity-cli test --mode PlayMode --filter MyTests.SmokeTest
 
 unity-cli screenshot --view game -o Screenshots/frame.png
 unity-cli profiler hierarchy --depth 3 --min 0.5
+
+unity-cli exec "return Camera.main.transform.position.ToString();"
+unity-cli exec "Selection.activeGameObject.name = \"Renamed\";"
+# ↑ exec is LAST RESORT ONLY. Prefer get/set/find/component/scene/… and shell composition.
+# Reach for exec only when the task genuinely cannot be expressed through available subcommands.
 ```
 
 ### Interactive mode
@@ -283,7 +285,7 @@ unity-cli find Assets/Sprites/ --type Texture2D --plain | \
 
 ## Common Mistakes
 
-- **Windows / Git Bash path mangling**: Git Bash (MSYS2) rewrites arguments starting with `/` into Windows paths before the binary sees them, so `/World/Player` becomes something like `C:/Program Files/Git/World/Player`. The user must export `MSYS_NO_PATHCONV=1` in their shell session (add to `~/.bashrc` to make it permanent). If commands fail with unexpected path errors on Windows Git Bash, check this first.
+- **Windows / Git Bash path mangling**: Git Bash (MSYS2) rewrites arguments starting with `/` into Windows paths before the binary sees them, so `/World/Player` becomes something like `C:/Program Files/Git/World/Player`. Use `export MSYS_NO_PATHCONV=1` — run it once at the start of the session or add it to `~/.bashrc`. Do **not** prepend `MSYS_NO_PATHCONV=1` before each individual command.
 - **Path separator**: always `/`, never `\`.
 - **`get`/`set` without a property**: `:Rigidbody` without `.mass` returns the object path, not a value. Always include `:Component.property`.
 - **Duplicate sibling names**: use `[0]`, `[1]` to disambiguate — e.g. `/World/Enemy[1]`.
