@@ -9,7 +9,56 @@ permissions:
   contents: write
 
 jobs:
+  # Fail-fast guard: the git tag MUST agree with every place in the source
+  # tree that hard-codes a version. Without this, a tag push with a missed
+  # version bump would build five binaries stamped vX.Y.Z against a tree
+  # whose connector still says X.Y.(Z-1), and every install would explode
+  # at runtime with a connector-version-mismatch error.
+  #
+  # Sources checked (must all match the tag with the leading 'v' stripped):
+  #   - unity-connector/package.json           "version": "X.Y.Z"
+  #   - unity-connector/Editor/Heartbeat.cs     CONNECTOR_VERSION = "X.Y.Z"
+  #   - flake.nix                              version = "X.Y.Z"
+  #   - flake.nix                              -X main.Version=X.Y.Z
+  verify-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Verify tag matches versions in source
+        run: |
+          set -euo pipefail
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          echo "Tag (stripped):  ${TAG_VERSION}"
+
+          PKG_VERSION=$(jq -r .version unity-connector/package.json)
+          HB_VERSION=$(grep -oP 'CONNECTOR_VERSION\s*=\s*"\K[^"]+' unity-connector/Editor/Heartbeat.cs)
+          FLAKE_VERSION=$(grep -oP 'version\s*=\s*"\K[^"]+' flake.nix | head -1)
+          FLAKE_LDFLAG=$(grep -oP -- '-X\s+main\.Version=\K[^"\s]+' flake.nix)
+
+          fail=0
+          check() {
+            local label="$1" got="$2"
+            if [ "$got" = "$TAG_VERSION" ]; then
+              echo "  OK:   $label = $got"
+            else
+              echo "::error::$label = '$got' does not match tag '$TAG_VERSION'"
+              fail=1
+            fi
+          }
+          check "unity-connector/package.json"            "$PKG_VERSION"
+          check "unity-connector/Editor/Heartbeat.cs"     "$HB_VERSION"
+          check "flake.nix version"                       "$FLAKE_VERSION"
+          check "flake.nix ldflag -X main.Version"        "$FLAKE_LDFLAG"
+
+          if [ "$fail" -ne 0 ]; then
+            echo
+            echo "::error::Refusing to release: bump every source version to ${TAG_VERSION} before tagging."
+            exit 1
+          fi
+
   build:
+    needs: verify-tag
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -25,9 +74,9 @@ jobs:
           - goos: windows
             goarch: amd64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: "1.24"
 

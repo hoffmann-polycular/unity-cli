@@ -10,8 +10,18 @@ permissions:
   contents: read
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
+  # Cross-platform build + tests. Path handling and filesystem semantics
+  # differ enough between OSes (especially around `init` writing
+  # Packages/manifest.json) that Linux-only CI is not enough — this is
+  # primarily a Windows-developed tool, but Linux and macOS users install
+  # release binaries too.
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
 
@@ -27,6 +37,18 @@ jobs:
 
       - name: Test
         run: go test ./...
+
+  # Lint + format are platform-independent — running them on all three
+  # OSes would just triple the spend on the same answer.
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.24"
 
       - name: Lint
         uses: golangci/golangci-lint-action@v9
