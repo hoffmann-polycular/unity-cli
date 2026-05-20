@@ -338,7 +338,13 @@ func buildParams(args []string, base map[string]interface{}) (map[string]interfa
 		a := args[i]
 		if strings.HasPrefix(a, "--") {
 			key := a[2:]
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+			// Known boolean flags never consume the next arg as a value —
+			// otherwise `unity-cli ls -R /` (normalized to `--recursive /`)
+			// would absorb `/` as the recursive=true value and lose the
+			// path positional.
+			if isKnownBooleanFlag(a) {
+				flags[key] = "true"
+			} else if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
 				flags[key] = args[i+1]
 				i++
 			} else {
