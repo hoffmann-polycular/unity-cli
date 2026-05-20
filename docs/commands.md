@@ -27,7 +27,7 @@ All commands with their options and examples. Use `unity-cli <command> --help` f
 [editor](#editor) · [console](#console) · [exec](#exec) · [test](#test) · [menu](#menu) · [screenshot](#screenshot) · [profiler](#profiler)
 
 **Tooling**
-[status](#status) · [list](#list) · [completion](#completion) · [update](#update) · [init](#init) · [Custom tools](#custom-tools)
+[status](#status) · [list](#list) · [completion](#completion) · [update](#update) · [init](#init) · [interactive](#interactive) · [Custom tools](#custom-tools)
 
 ---
 
@@ -1172,6 +1172,82 @@ unity-cli init --uninstall
 ```
 
 Idempotency: re-running `init` with the same target source is a no-op (prints the existing value and exits 0). Re-running with a different desired source requires `--upgrade`.
+
+---
+
+## interactive
+
+Enter a REPL where unity-cli subcommands can be invoked without the `unity-cli` prefix. The Unity instance is discovered once at startup and reused across every command, so subsequent calls are faster than running the CLI fresh each time. Tab completion (the same machinery the shell completion scripts use) is wired in, and a `!` prefix drops into the host shell for any segment.
+
+```
+unity-cli interactive [<project>]
+```
+
+**Prompt.** The project's base name, truncated to 20 chars: `MyGame>`. When no instance is bound: `unity-cli (no project)>`.
+
+**Built-in REPL commands** (not regular subcommands; they only exist inside the REPL):
+
+- `exit`, `quit` — leave the REPL.
+- `clear` — clear the screen (Ctrl-L also works).
+- `use [<project>]` — print the current binding or rebind to a different project (substring match against `ProjectPath`).
+- `use --port <N>` — bind by port.
+- `use --clear` — unbind (subsequent commands will error until a new `use`).
+
+**Pipelines.** Segments separated by an unquoted `|`:
+
+- **No prefix → unity-cli command**, dispatched internally. Stdin/stdout are wired between adjacent unity-cli segments via in-memory buffers — so `find --plain | inspect` works without spawning subprocesses.
+- **`!` prefix → shell command**, run through `sh -c` (Unix) or `cmd /c` (Windows). Redirection (`>`, `>>`, `<`, `2>`) lives inside `!` segments and is handled by the host shell — there is no native redirection for unity-cli segments by design.
+
+Mix freely:
+
+```
+find --component Light --plain | inspect :Light
+find --plain | !grep -v Disabled | inspect :Light --json | !jq '.intensity'
+!ls Assets/Prefabs/*.prefab | inspect
+inspect :Component --json | !tee /tmp/snapshot.json | !jq '.position'
+```
+
+**Forgiveness.** A leading `unity-cli` on any segment is stripped, so pasting documentation examples works:
+
+```
+MyGame> unity-cli find --component Light
+```
+
+is equivalent to:
+
+```
+MyGame> find --component Light
+```
+
+**Cancellation.** Ctrl-C clears the current input line. Ctrl-D at an empty prompt exits the REPL cleanly. Ctrl-C while a command is in flight does **not** cancel it — bound long-running commands with `--timeout` at session start.
+
+**History.** Persistent across sessions at `~/.unity-cli/history` (or `%APPDATA%\unity-cli\history` on Windows), capped at 1000 entries. Up/Down navigate, Ctrl-R reverse-searches.
+
+**Examples:**
+
+```bash
+# Start from inside the project directory; auto-discover the running Editor
+$ cd ~/projects/MyGame
+$ unity-cli interactive
+Connected to Unity (port 56789, project /Users/.../MyGame, connector 0.4.0)
+Type `help`, `exit`, or any unity-cli subcommand without the `unity-cli` prefix.
+Prefix shell commands with `!` to drop to the host shell.
+MyGame> find --component Light --plain
+/World/Lights/Sun
+/World/Lights/Ambient
+MyGame> find --component Light --plain | inspect :Light --json | !jq -c '{path, intensity}'
+{"path":"/World/Lights/Sun","intensity":1.5}
+{"path":"/World/Lights/Ambient","intensity":0.3}
+MyGame> use --port 56790
+bound: /Users/.../OtherProject (port 56790)
+OtherProject> exit
+```
+
+**Limitations (v1).**
+
+- No variable bindings, `$_` last-output reference, or multi-line input.
+- No native redirection on unity-cli segments — pipe to `!cat > file`.
+- Ctrl-C does not interrupt an in-flight command (planned for v2).
 
 ---
 

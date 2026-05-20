@@ -207,6 +207,10 @@ unity-cli screenshot --view game -o Screenshots/frame.png
 unity-cli profiler hierarchy --depth 3 --min 0.5
 ```
 
+### Interactive mode
+
+ `unity-cli interactive` opens a REPL; can not be used by agents that cant use interactive terminal sessions.
+
 ---
 
 ## Composition Patterns

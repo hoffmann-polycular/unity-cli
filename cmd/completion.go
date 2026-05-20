@@ -162,7 +162,8 @@ var topLevelCommands = []string{
 	"component", "select", "create", "rm", "cp", "mv", "reorder",
 	"prefab", "scene", "console", "menu", "screenshot", "reserialize", "reimport",
 	"guid", "path",
-	"profiler", "status", "list", "update", "init", "version", "help", "completion",
+	"profiler", "status", "list", "update", "init", "interactive",
+	"version", "help", "completion",
 }
 
 var subcommands = map[string][]string{
@@ -172,7 +173,7 @@ var subcommands = map[string][]string{
 	"component":  {"list", "add", "remove"},
 	"profiler":   {"hierarchy", "enable", "disable", "status", "clear"},
 	"completion": {"bash", "zsh", "fish", "powershell"},
-	"help":       {"editor", "ls", "find", "inspect", "get", "set", "component", "select", "create", "rm", "cp", "mv", "reorder", "prefab", "scene", "console", "menu", "exec", "screenshot", "reserialize", "profiler", "test", "status", "list", "update", "init", "custom-tools", "setup"},
+	"help":       {"editor", "ls", "find", "inspect", "get", "set", "component", "select", "create", "rm", "cp", "mv", "reorder", "prefab", "scene", "console", "menu", "exec", "screenshot", "reserialize", "profiler", "test", "status", "list", "update", "init", "interactive", "custom-tools", "setup"},
 }
 
 var primitiveTypes = []string{

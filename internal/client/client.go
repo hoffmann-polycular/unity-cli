@@ -5,6 +5,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -197,7 +198,20 @@ func DiscoverInstance(project string, port int) (*Instance, error) {
 	return &best, nil
 }
 
+// Send dispatches a command to the Unity instance with a hard timeout.
+// Equivalent to SendContext(context.Background(), ...). Cancelling the
+// process via SIGINT will not abort an in-flight Send — use SendContext
+// for cancellation support (e.g. from the interactive REPL).
 func Send(inst *Instance, command string, params interface{}, timeoutMs int) (*CommandResponse, error) {
+	return SendContext(context.Background(), inst, command, params, timeoutMs)
+}
+
+// SendContext is like Send but ties the HTTP request to a context. When
+// ctx is cancelled, the in-flight request is aborted and the call
+// returns ctx.Err(). Used by the interactive REPL so Ctrl-C during a
+// long-running command returns to the prompt instead of killing the
+// whole process.
+func SendContext(ctx context.Context, inst *Instance, command string, params interface{}, timeoutMs int) (*CommandResponse, error) {
 	if params == nil {
 		params = map[string]interface{}{}
 	}
@@ -210,8 +224,17 @@ func Send(inst *Instance, command string, params interface{}, timeoutMs int) (*C
 	url := fmt.Sprintf("http://127.0.0.1:%d/command", inst.Port)
 	httpClient := &http.Client{Timeout: time.Duration(timeoutMs) * time.Millisecond}
 
-	resp, err := httpClient.Post(url, "application/json", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, fmt.Errorf("cannot connect to Unity at port %d: %v", inst.Port, err)
 	}
 	defer resp.Body.Close()

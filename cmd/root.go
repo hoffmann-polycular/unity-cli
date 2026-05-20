@@ -101,6 +101,8 @@ func Execute() error {
 		return updateCmd(subArgs)
 	case "init":
 		return initCmd(subArgs)
+	case "interactive":
+		return interactiveCmd(subArgs)
 	case "status":
 		inst, err := discoverStatusInstance(flagProject, flagPort)
 		if err != nil {
@@ -152,78 +154,7 @@ func Execute() error {
 		return resp, nil
 	}
 
-	var resp *client.CommandResponse
-
-	switch category {
-	case "editor":
-		resp, err = editorCmd(subArgs, send, resolve)
-	case "test":
-		currentInst, resolveErr := resolve()
-		if resolveErr != nil {
-			return exit.Wrap(exit.Unreach, resolveErr)
-		}
-		if err := checkConnectorVersion(currentInst, Version, flagIgnoreVersionMismatch); err != nil {
-			return exit.Wrap(exit.Runtime, err)
-		}
-		testSend := func(command string, params interface{}) (*client.CommandResponse, error) {
-			r, sendErr := client.Send(currentInst, command, params, 0)
-			if sendErr != nil {
-				return nil, exit.Wrap(exit.Unreach, sendErr)
-			}
-			return r, nil
-		}
-		resp, err = testCmd(subArgs, testSend, currentInst.Port)
-	case "exec":
-		subArgs = readStdinIfPiped(subArgs)
-		var params map[string]interface{}
-		params, err = buildParams(subArgs, nil)
-		if err == nil {
-			resp, err = send("exec", params)
-		}
-	case "ls":
-		resp, err = lsCmd(subArgs, send)
-	case "find":
-		resp, err = findCmd(subArgs, send)
-	case "inspect":
-		resp, err = inspectCmd(subArgs, send)
-	case "get":
-		resp, err = getCmd(subArgs, send)
-	case "set":
-		resp, err = setCmd(subArgs, send)
-	case "component":
-		resp, err = componentCmd(subArgs, send)
-	case "select":
-		resp, err = selectCmd(subArgs, send)
-	case "create":
-		resp, err = createCmd(subArgs, send)
-	case "rm":
-		resp, err = rmCmd(subArgs, send)
-	case "cp":
-		resp, err = cpCmd(subArgs, send)
-	case "mv":
-		resp, err = mvCmd(subArgs, send)
-	case "reorder":
-		resp, err = reorderCmd(subArgs, send)
-	case "prefab":
-		resp, err = prefabCmd(subArgs, send)
-	case "scene":
-		resp, err = sceneCmd(subArgs, send)
-	case "screenshot":
-		resp, err = screenshotCmd(subArgs, send)
-	case "reimport":
-		resp, err = reimportCmd(subArgs, send)
-	case "guid":
-		resp, err = guidCmd(subArgs, send)
-	case "path":
-		resp, err = pathCmd(subArgs, send)
-	default:
-		var params map[string]interface{}
-		params, err = buildParams(subArgs, nil)
-		if err == nil {
-			resp, err = send(category, params)
-		}
-	}
-
+	resp, err := dispatchOnline(category, subArgs, send, resolve)
 	if err != nil {
 		return err
 	}
@@ -258,6 +189,90 @@ func Execute() error {
 // sendFn is the function signature for sending a command to Unity.
 // Injected into each command function so they can be tested without a real Unity connection.
 type sendFn func(command string, params interface{}) (*client.CommandResponse, error)
+
+// dispatchOnline routes a single category+args invocation to its handler
+// and returns the raw response without printing. This is the shared body
+// the top-level CLI and the interactive REPL both call.
+//
+// Pre-conditions:
+//   - The caller has already discovered an instance and constructed
+//     `send` (per-call resolve + version-check + Send) and `resolve`
+//     (raw instance lookup) closures bound to the current target.
+//   - The category is a real, online-capable subcommand: this function
+//     does NOT handle the pre-discovery commands (help, version,
+//     completion, update, init, status) — those are dispatched directly
+//     by Execute() before instance discovery.
+func dispatchOnline(category string, subArgs []string, send sendFn, resolve instanceResolver) (*client.CommandResponse, error) {
+	switch category {
+	case "editor":
+		return editorCmd(subArgs, send, resolve)
+	case "test":
+		currentInst, resolveErr := resolve()
+		if resolveErr != nil {
+			return nil, exit.Wrap(exit.Unreach, resolveErr)
+		}
+		if err := checkConnectorVersion(currentInst, Version, flagIgnoreVersionMismatch); err != nil {
+			return nil, exit.Wrap(exit.Runtime, err)
+		}
+		testSend := func(command string, params interface{}) (*client.CommandResponse, error) {
+			r, sendErr := client.Send(currentInst, command, params, 0)
+			if sendErr != nil {
+				return nil, exit.Wrap(exit.Unreach, sendErr)
+			}
+			return r, nil
+		}
+		return testCmd(subArgs, testSend, currentInst.Port)
+	case "exec":
+		subArgs = readStdinIfPiped(subArgs)
+		params, err := buildParams(subArgs, nil)
+		if err != nil {
+			return nil, err
+		}
+		return send("exec", params)
+	case "ls":
+		return lsCmd(subArgs, send)
+	case "find":
+		return findCmd(subArgs, send)
+	case "inspect":
+		return inspectCmd(subArgs, send)
+	case "get":
+		return getCmd(subArgs, send)
+	case "set":
+		return setCmd(subArgs, send)
+	case "component":
+		return componentCmd(subArgs, send)
+	case "select":
+		return selectCmd(subArgs, send)
+	case "create":
+		return createCmd(subArgs, send)
+	case "rm":
+		return rmCmd(subArgs, send)
+	case "cp":
+		return cpCmd(subArgs, send)
+	case "mv":
+		return mvCmd(subArgs, send)
+	case "reorder":
+		return reorderCmd(subArgs, send)
+	case "prefab":
+		return prefabCmd(subArgs, send)
+	case "scene":
+		return sceneCmd(subArgs, send)
+	case "screenshot":
+		return screenshotCmd(subArgs, send)
+	case "reimport":
+		return reimportCmd(subArgs, send)
+	case "guid":
+		return guidCmd(subArgs, send)
+	case "path":
+		return pathCmd(subArgs, send)
+	default:
+		params, err := buildParams(subArgs, nil)
+		if err != nil {
+			return nil, err
+		}
+		return send(category, params)
+	}
+}
 
 func printResponse(resp *client.CommandResponse) {
 	if !resp.Success {
@@ -472,6 +487,8 @@ Tooling
   update [--check]
   init [<project>] [--local <path>] [--upgrade] [--uninstall] [--wait]
                               install the connector UPM package into a project
+  interactive [<project>]     enter a REPL where commands omit the unity-cli
+                              prefix; pipe internally or with '!cmd' to shell
   help <command>              detailed reference for one command
 
 Global flags
@@ -1468,6 +1485,58 @@ Examples:
   unity-cli init --upgrade                      # bump the pinned version
   unity-cli init --local ../unity-cli/unity-connector
   unity-cli init --uninstall
+`)
+	case "interactive":
+		fmt.Print(`Usage: unity-cli interactive [<project>]
+
+Enter an interactive REPL where unity-cli subcommands can be typed
+without the ` + "`unity-cli`" + ` prefix. The connection to Unity is resolved once
+at startup and reused for every command, which is faster than running
+the CLI fresh each time.
+
+Prompt:
+  The project name appears in the prompt:
+    MyGame>
+  If no Unity instance is currently bound, the prompt is:
+    unity-cli (no project)>
+
+Built-in REPL commands (not available as regular subcommands):
+  exit, quit            leave the REPL
+  clear                 clear the screen (Ctrl-L also works)
+  use [<project>]       print or change the bound Unity instance
+  use --port <N>        bind by port
+  use --clear           unbind
+
+Pipelines:
+  Segments are separated by an unquoted ` + "`|`" + `. Each segment is either:
+    - a unity-cli subcommand (no prefix), dispatched internally
+    - a shell command (prefix the first token with ` + "`!`" + `), run via the
+      host shell. Redirection (>, >>, <, 2>) lives inside ` + "`!`" + ` segments.
+
+  Examples:
+    find --component Light --plain | inspect :Light
+    find --plain | !grep -v Disabled | inspect :Light --json | !jq '.intensity'
+    !ls Assets/Prefabs/*.prefab | inspect
+
+Forgiveness:
+  Pasting a doc example with a leading ` + "`unity-cli`" + ` works too:
+    MyGame> unity-cli find --component Light
+  is treated the same as
+    MyGame> find --component Light
+
+Cancellation:
+  Ctrl-C clears the current input line.
+  Ctrl-D at an empty prompt exits.
+
+History:
+  Persistent across sessions at ~/.unity-cli/history (1000 entries).
+  Up/Down arrow keys navigate, Ctrl-R reverse-searches.
+
+Limitations (v1):
+  - No variable bindings, no $_ last-output reference, no multi-line input.
+  - Redirection on unity-cli segments is not supported. Use ` + "`!cat > file`" + `.
+  - Ctrl-C does not interrupt an in-flight command. Use ` + "`--timeout`" + ` to
+    bound long-running commands at session start.
 `)
 	case "completion":
 		fmt.Print(`Usage: unity-cli completion <bash|zsh|fish|powershell>

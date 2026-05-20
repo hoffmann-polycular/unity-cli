@@ -73,6 +73,7 @@ from a local working copy.
 ## Rules
 
 - **Execution:** Use the installed `unity-cli` binary. `go run .` is for testing only.
+- **Interactive mode:** `unity-cli interactive` opens a REPL; can not be used by agents that cant use interactive terminal sessions. users can drop the `unity-cli` prefix and pipe with `|` (segments without prefix are dispatched internally; `!cmd` shells out for grep/jq/etc).
 - **Git:** Commit all unstaged changes before finishing. Unrelated changes go in separate commits.
 - **Finish checklist:** Run verification, test with live Unity if available, clean up temp files.
 
