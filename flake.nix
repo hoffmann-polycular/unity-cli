@@ -12,10 +12,10 @@
         let pkgs = nixpkgs.legacyPackages.${system}; in {
           default = pkgs.buildGoModule {
             pname = "unity-cli";
-            version = "0.4.0";
+            version = "0.4.1";
             src = ./.;
             vendorHash = null;
-            ldflags = [ "-s" "-w" "-X main.Version=0.4.0" ];
+            ldflags = [ "-s" "-w" "-X main.Version=0.4.1" ];
           };
         });
 

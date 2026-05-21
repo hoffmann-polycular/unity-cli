@@ -1235,7 +1235,7 @@ MyGame> find --component Light
 # Start from inside the project directory; auto-discover the running Editor
 $ cd ~/projects/MyGame
 $ unity-cli interactive
-Connected to Unity (port 56789, project /Users/.../MyGame, connector 0.4.0)
+Connected to Unity (port 56789, project /Users/.../MyGame, connector 0.4.1)
 Type `help`, `exit`, or any unity-cli subcommand without the `unity-cli` prefix.
 Prefix shell commands with `!` to drop to the host shell.
 MyGame> find --component Light --plain
