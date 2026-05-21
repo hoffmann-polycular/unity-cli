@@ -25,5 +25,16 @@
           program = "${self.packages.${system}.default}/bin/unity-cli";
         };
       });
+
+      devShells = forAllSystems (system:
+        let pkgs = nixpkgs.legacyPackages.${system}; in {
+          default = pkgs.mkShell {
+            packages = with pkgs; [
+              go
+              gopls
+              golangci-lint
+            ];
+          };
+        });
     };
 }

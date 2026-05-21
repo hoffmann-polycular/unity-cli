@@ -1,4 +1,5 @@
 /unity-cli
+.direnv/
 *.exe
 .env
 .DS_Store
