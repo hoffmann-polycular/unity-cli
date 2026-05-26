@@ -410,6 +410,17 @@ namespace UnityCliConnector
 					var expectedType = TypeResolver.ResolveUnityObjectType(expected);
 					if (expectedType != null && !expectedType.IsInstanceOfType(asset))
 					{
+						// Main asset isn't assignable, but a sub-asset of the
+						// expected type may exist at the same path. Canonical
+						// case: a .png imported as a Sprite has Texture2D as
+						// its main asset and the Sprite(s) as sub-assets;
+						// assigning the texture path to an Image.sprite field
+						// should resolve to the Sprite. Same pattern for
+						// .fbx → Mesh/AnimationClip/Avatar sub-assets.
+						var subAsset = AssetDatabase.LoadAssetAtPath(s, expectedType);
+						if (subAsset != null)
+							return Result<Object>.Success(subAsset);
+
 						return Result<Object>.Error(
 							$"Asset at '{s}' is a {asset.GetType().Name}, not assignable to {expectedType.Name}.");
 					}
