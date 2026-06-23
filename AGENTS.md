@@ -38,17 +38,28 @@ go test -tags integration ./...
 
 ## Version Management
 
-CLI (Go) and Connector (C#) must always share the same release version. Three files to keep in sync on every release:
+CLI (Go) and Connector (C#) must always share the same release version. Bump
+these three version strings on every release, then tag:
 
 - `unity-connector/package.json` — `version: "X.Y.Z"`
 - `unity-connector/Editor/Heartbeat.cs` — `CONNECTOR_VERSION = "X.Y.Z"`
+- `flake.nix` — `version = "X.Y.Z"` (no leading `v`, Nix convention)
 - Git tag — `vX.Y.Z`
+
+The flake's injected `main.Version` derives from its `version` attr as
+`v${version}`, so you do **not** edit it by hand — it always tracks the line
+above with the leading `v` added. Release-binary builds stamp `main.Version`
+straight from the git tag (`${GITHUB_REF_NAME}`), so both install paths report
+the same `vX.Y.Z`.
 
 The CLI validates the connector version at startup and errors if they differ.
 
-A `go test ./cmd/...` assertion (`TestConnectorVersionsInSync`) compares
-`package.json` against `Heartbeat.cs` on every CI run so drift is caught
-before release.
+Two guards catch drift before a release ships:
+- `go test ./cmd/...` (`TestConnectorVersionsInSync`) compares `package.json`
+  against `Heartbeat.cs` on every CI run.
+- The `verify-tag` job in `.github/workflows/release.yml` refuses to build
+  unless `package.json`, `Heartbeat.cs`, and `flake.nix` all match the pushed
+  tag (with the leading `v` stripped).
 
 ### Init from dev builds
 
@@ -63,7 +74,7 @@ from a local working copy.
 ## Release Flow
 
 1. Run all verification steps
-2. Bump version in `package.json` and `Heartbeat.cs`
+2. Bump version in `package.json`, `Heartbeat.cs`, and `flake.nix` (`version =`)
 3. Commit + push
 4. Push new tag (`vX.Y.Z`) if CLI changed
 5. Wait for CI + Release: `gh run watch --exit-status` (background)

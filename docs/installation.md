@@ -32,6 +32,34 @@ Add it to `~/.bashrc` or `~/.bash_profile` to make it permanent.
 go install github.com/hoffmann-polycular/unity-cli@latest
 ```
 
+### Nix flake
+
+The repository is a flake. Run it directly without installing:
+
+```bash
+nix run github:hoffmann-polycular/unity-cli -- status
+```
+
+Install it into your profile:
+
+```bash
+nix profile install github:hoffmann-polycular/unity-cli
+```
+
+Pin a released version by appending the tag:
+
+```bash
+nix profile install github:hoffmann-polycular/unity-cli/v0.4.1
+```
+
+Or add it to a flake-based system / home-manager config via the `default`
+package output (`packages.<system>.default`). For hacking on unity-cli itself,
+`nix develop` drops you into a shell with `go`, `gopls`, and `golangci-lint`.
+
+> Don't use `unity-cli update` on a Nix install — the binary lives in the
+> read-only Nix store. Upgrade by bumping the flake input (or re-running
+> `nix profile install`/`nix profile upgrade`) instead.
+
 ### Manual download
 
 Pre-built binaries for Linux (amd64, arm64), macOS (Intel, Apple Silicon), and Windows (amd64) are attached to each [GitHub release](https://github.com/hoffmann-polycular/unity-cli/releases/latest).
@@ -147,4 +175,4 @@ unity-cli --port 8091 status
 
 The CLI checks the Connector's reported version on every invocation. If they differ, the CLI exits with an error. Use `--ignore-version-mismatch` to override when testing a development build.
 
-Both the CLI and Connector must be updated together for a release. See the [CLAUDE.md](../CLAUDE.md) checklist for the release procedure.
+Both the CLI and Connector must be updated together for a release. See the [AGENTS.md](../AGENTS.md) checklist for the release procedure.
