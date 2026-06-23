@@ -110,9 +110,14 @@ func readPackageJSONVersion(t *testing.T, path string) string {
 	return manifest.Version
 }
 
-// TestFlakeVersionsInSync asserts that both version occurrences inside
-// flake.nix — the package `version` attribute and the `-X main.Version=`
-// ldflag — match the canonical version in unity-connector/package.json.
+// TestFlakeVersionsInSync asserts that the flake's `version` attribute matches
+// the canonical version in unity-connector/package.json, and that the injected
+// main.Version is *derived* from that attribute rather than hard-coded.
+//
+// The ldflag deliberately reads `-X main.Version=v${version}`: the leading "v"
+// is added programmatically so the binary's reported version always tracks the
+// `version` attr (which is checked against package.json) and can never drift to
+// a stale literal. We assert the derivation is intact, not a numeric value.
 func TestFlakeVersionsInSync(t *testing.T) {
 	repoRoot := findRepoRoot(t)
 	pkgVersion := readPackageJSONVersion(t, filepath.Join(repoRoot, "unity-connector", "package.json"))
@@ -124,13 +129,14 @@ func TestFlakeVersionsInSync(t *testing.T) {
 	src := string(data)
 
 	flakeVersion := extractFlakeField(t, src, `version\s*=\s*"([^"]+)"`, "version")
-	ldflagVersion := extractFlakeField(t, src, `-X\s+main\.Version=([^"\s]+)`, "-X main.Version")
+	ldflag := extractFlakeField(t, src, `-X\s+main\.Version=([^"\s]+)`, "-X main.Version")
 
 	if flakeVersion != pkgVersion {
 		t.Errorf("flake.nix version %q != package.json %q", flakeVersion, pkgVersion)
 	}
-	if ldflagVersion != pkgVersion {
-		t.Errorf("flake.nix ldflag -X main.Version=%q != package.json %q", ldflagVersion, pkgVersion)
+	if ldflag != "v${version}" {
+		t.Errorf("flake.nix ldflag -X main.Version=%q is not derived from the version attr; "+
+			"expected the literal %q so it tracks the checked attr with a leading v", ldflag, "v${version}")
 	}
 }
 

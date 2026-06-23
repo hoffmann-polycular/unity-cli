@@ -10,12 +10,12 @@
     in {
       packages = forAllSystems (system:
         let pkgs = nixpkgs.legacyPackages.${system}; in {
-          default = pkgs.buildGoModule {
+          default = let version = "0.4.1"; in pkgs.buildGoModule {
             pname = "unity-cli";
-            version = "0.4.1";
+            inherit version;
             src = ./.;
             vendorHash = null;
-            ldflags = [ "-s" "-w" "-X main.Version=0.4.1" ];
+            ldflags = [ "-s" "-w" "-X main.Version=v${version}" ];
           };
         });
 
