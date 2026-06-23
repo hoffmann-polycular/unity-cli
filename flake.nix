@@ -10,7 +10,7 @@
     in {
       packages = forAllSystems (system:
         let pkgs = nixpkgs.legacyPackages.${system}; in {
-          default = let version = "0.4.1"; in pkgs.buildGoModule {
+          default = let version = "0.4.2"; in pkgs.buildGoModule {
             pname = "unity-cli";
             inherit version;
             src = ./.;
