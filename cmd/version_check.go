@@ -8,12 +8,88 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 )
 
 const checkInterval = 1 * time.Hour
 
 var fetchLatestReleaseFn = fetchLatestRelease
+
+// stdoutIsTerminalFn reports whether stdout is an interactive terminal. It is a
+// variable so tests can override it. We gate the update notice on this so that
+// piped/redirected output (agents, scripts, jq, grep) stays clean and
+// line-based processing is never broken by a stray notice.
+var stdoutIsTerminalFn = stdoutIsTerminal
+
+func stdoutIsTerminal() bool {
+	fi, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
+}
+
+// compareVersions compares two dotted versions, returning -1, 0, or 1. A leading
+// "v" is ignored (see normalizeVersion). Each segment is compared by its leading integer; any malformed
+// or non-numeric input falls back to a string comparison so we never panic on an
+// unexpected tag.
+func compareVersions(a, b string) int {
+	a = normalizeVersion(a)
+	b = normalizeVersion(b)
+	if a == b {
+		return 0
+	}
+
+	as := strings.Split(a, ".")
+	bs := strings.Split(b, ".")
+	n := len(as)
+	if len(bs) > n {
+		n = len(bs)
+	}
+
+	for i := 0; i < n; i++ {
+		ai, aok := segmentValue(as, i)
+		bi, bok := segmentValue(bs, i)
+		if !aok || !bok {
+			return strings.Compare(a, b)
+		}
+		if ai != bi {
+			if ai < bi {
+				return -1
+			}
+			return 1
+		}
+	}
+	return 0
+}
+
+// segmentValue returns the leading integer of segment i (missing segments are 0).
+func segmentValue(segs []string, i int) (int, bool) {
+	if i >= len(segs) {
+		return 0, true
+	}
+	s := segs[i]
+	// Take only the leading run of digits so suffixes like "1-rc1" still parse.
+	end := 0
+	for end < len(s) && s[end] >= '0' && s[end] <= '9' {
+		end++
+	}
+	if end == 0 {
+		return 0, false
+	}
+	v, err := strconv.Atoi(s[:end])
+	if err != nil {
+		return 0, false
+	}
+	return v, true
+}
+
+// isOutdated reports whether latest is a strictly newer release than current.
+func isOutdated(current, latest string) bool {
+	return latest != "" && compareVersions(current, latest) < 0
+}
 
 type versionCache struct {
 	CheckedAt int64  `json:"checked_at"`
@@ -58,6 +134,13 @@ func printUpdateNotice() {
 		return
 	}
 
+	// Only surface the notice on an interactive terminal. When stdout is piped
+	// or redirected the caller is processing output programmatically and a
+	// notice would corrupt line-based parsing.
+	if !stdoutIsTerminalFn() {
+		return
+	}
+
 	path := cacheFilePath()
 	if path == "" {
 		return
@@ -67,7 +150,7 @@ func printUpdateNotice() {
 	cache, _ := loadCache(path)
 	latestNotice := ""
 
-	if cache != nil && cache.Outdated && cache.Latest != "" && cache.Latest != Version {
+	if cache != nil && isOutdated(Version, cache.Latest) {
 		latestNotice = cache.Latest
 	}
 
@@ -97,7 +180,7 @@ func printUpdateNotice() {
 	nextCache := &versionCache{
 		CheckedAt: now,
 		Latest:    release.TagName,
-		Outdated:  release.TagName != "" && release.TagName != Version,
+		Outdated:  isOutdated(Version, release.TagName),
 	}
 	saveCache(path, nextCache)
 

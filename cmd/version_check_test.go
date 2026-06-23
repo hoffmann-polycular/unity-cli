@@ -47,6 +47,13 @@ func prepareVersionCheckEnv(t *testing.T, version string) string {
 	origFetch := fetchLatestReleaseFn
 	t.Cleanup(func() { fetchLatestReleaseFn = origFetch })
 
+	// Under `go test` stdout is a pipe, not a terminal. Force the notice's
+	// terminal gate on so the notice logic is exercised; the suppression path
+	// has its own dedicated test.
+	origTerm := stdoutIsTerminalFn
+	stdoutIsTerminalFn = func() bool { return true }
+	t.Cleanup(func() { stdoutIsTerminalFn = origTerm })
+
 	return filepath.Join(home, ".unity-cli", "version-check.json")
 }
 
@@ -167,6 +174,95 @@ func TestPrintUpdateNotice_SkipsDevVersion(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("expected no cache file for dev version")
+	}
+}
+
+func TestPrintUpdateNotice_SuppressedWhenStdoutNotTerminal(t *testing.T) {
+	path := prepareVersionCheckEnv(t, "v0.3.10")
+	stdoutIsTerminalFn = func() bool { return false }
+
+	saveCache(path, &versionCache{
+		CheckedAt: time.Now().Unix(),
+		Latest:    "v0.3.11",
+		Outdated:  true,
+	})
+
+	fetchCalled := false
+	fetchLatestReleaseFn = func() (*ghRelease, error) {
+		fetchCalled = true
+		return &ghRelease{TagName: "v9.9.9"}, nil
+	}
+
+	output := captureStderr(t, func() {
+		printUpdateNotice()
+	})
+
+	if fetchCalled {
+		t.Fatal("expected no remote fetch when stdout is not a terminal")
+	}
+	if output != "" {
+		t.Fatalf("expected no notice when stdout is not a terminal, got %q", output)
+	}
+}
+
+func TestPrintUpdateNotice_NoNoticeWhenVersionsEqualIgnoringVPrefix(t *testing.T) {
+	// Reproduces the reported bug: a flake build reports "0.4.1" (no leading v)
+	// while the release tag is "v0.4.1". These must be treated as equal.
+	path := prepareVersionCheckEnv(t, "0.4.1")
+
+	fetchLatestReleaseFn = func() (*ghRelease, error) {
+		return &ghRelease{TagName: "v0.4.1"}, nil
+	}
+
+	output := captureStderr(t, func() {
+		printUpdateNotice()
+	})
+
+	if output != "" {
+		t.Fatalf("expected no notice for equal versions, got %q", output)
+	}
+
+	loaded, err := loadCache(path)
+	if err != nil {
+		t.Fatalf("loadCache: %v", err)
+	}
+	if loaded.Outdated {
+		t.Fatalf("expected Outdated=false for equal versions, got %+v", loaded)
+	}
+}
+
+func TestCompareVersions(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want int
+	}{
+		{"0.4.1", "v0.4.1", 0},
+		{"v0.4.1", "0.4.1", 0},
+		{"0.4.1", "0.4.2", -1},
+		{"0.4.10", "0.4.9", 1},
+		{"1.0.0", "0.9.9", 1},
+		{"0.4", "0.4.0", 0},
+		{"0.4.1-rc1", "0.4.1-rc1", 0},
+	}
+	for _, c := range cases {
+		if got := compareVersions(c.a, c.b); got != c.want {
+			t.Errorf("compareVersions(%q, %q) = %d, want %d", c.a, c.b, got, c.want)
+		}
+	}
+}
+
+func TestIsOutdated(t *testing.T) {
+	if isOutdated("0.4.1", "v0.4.1") {
+		t.Error("equal versions (ignoring v prefix) must not be outdated")
+	}
+	if !isOutdated("0.4.1", "v0.4.2") {
+		t.Error("newer release must be outdated")
+	}
+	if isOutdated("0.4.2", "v0.4.1") {
+		t.Error("older release must not be outdated")
+	}
+	if isOutdated("0.4.1", "") {
+		t.Error("empty latest must not be outdated")
 	}
 }
 
