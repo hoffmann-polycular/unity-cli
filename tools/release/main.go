@@ -38,7 +38,7 @@ func main() {
 }
 
 func run(args []string) error {
-	var dryRun, push bool
+	var dryRun, push, check, skipChecks bool
 	var spec string
 	for _, a := range args {
 		switch a {
@@ -46,8 +46,13 @@ func run(args []string) error {
 			dryRun = true
 		case "--push":
 			push = true
+		case "--check":
+			check = true
+		case "--skip-checks":
+			skipChecks = true
 		case "-h", "--help":
-			fmt.Println("usage: go run ./tools/release <X.Y.Z | patch | minor | major> [--dry-run] [--push]")
+			fmt.Println("usage: go run ./tools/release <X.Y.Z | patch | minor | major> [--dry-run] [--push] [--skip-checks]")
+			fmt.Println("       go run ./tools/release --check   (run CI-equivalent checks only, no bump)")
 			return nil
 		default:
 			if strings.HasPrefix(a, "-") {
@@ -59,14 +64,26 @@ func run(args []string) error {
 			spec = a
 		}
 	}
-	if spec == "" {
-		return fmt.Errorf("missing version argument (X.Y.Z, patch, minor, or major)")
-	}
 
 	root, err := repoRoot()
 	if err != nil {
 		return err
 	}
+
+	// --check: run the CI-equivalent gate and stop. No version arg required.
+	if check {
+		fmt.Println("running CI-equivalent checks…")
+		if err := preflight(root); err != nil {
+			return err
+		}
+		fmt.Println("✓ all checks passed")
+		return nil
+	}
+
+	if spec == "" {
+		return fmt.Errorf("missing version argument (X.Y.Z, patch, minor, or major)")
+	}
+
 	pkgPath := filepath.Join(root, "unity-connector", "package.json")
 	data, err := os.ReadFile(pkgPath)
 	if err != nil {
@@ -88,7 +105,7 @@ func run(args []string) error {
 
 	fmt.Printf("current: %s\nnext:    %s  (tag %s)\n", cur, next, tag)
 	if dryRun {
-		fmt.Println("--dry-run: no files changed, no tests run, no commit/tag created")
+		fmt.Println("--dry-run: no files changed, no checks run, no commit/tag created")
 		return nil
 	}
 
@@ -96,16 +113,19 @@ func run(args []string) error {
 		return fmt.Errorf("tag %s already exists", tag)
 	}
 
+	// Gate on the same checks CI runs, before touching anything — a failure
+	// here leaves the tree unchanged.
+	if skipChecks {
+		fmt.Println("--skip-checks: NOT running preflight (CI will still gate the tag)")
+	} else if err := preflight(root); err != nil {
+		return err
+	}
+
 	updated := replaceVersion(string(data), next)
 	if err := os.WriteFile(pkgPath, []byte(updated), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", pkgPath, err)
 	}
 	fmt.Printf("bumped %s → %s\n", relPkg, next)
-
-	fmt.Println("running go test ./cmd/... ...")
-	if err := runCmd(root, "go", "test", "./cmd/..."); err != nil {
-		return fmt.Errorf("tests failed (package.json left bumped for inspection): %w", err)
-	}
 
 	if err := runCmd(root, "git", "commit", relPkg, "-m", "chore: increase version to "+next); err != nil {
 		return fmt.Errorf("git commit: %w", err)
@@ -130,6 +150,69 @@ func run(args []string) error {
 }
 
 const relPkg = "unity-connector/package.json"
+
+// preflight runs the same gates CI does (the `test` job: build/vet/test, and
+// the `lint` job: gofmt + golangci-lint), so a release can't be cut that would
+// fail CI. golangci-lint is used when installed; the gofmt check always runs
+// (it's the only formatter the .golangci.yml enables, so it's faithful even
+// without golangci-lint).
+func preflight(root string) error {
+	// Format first — instant feedback, and the gate that bites most often.
+	fmt.Println("• gofmt -l")
+	unformatted, err := gofmtList(root)
+	if err != nil {
+		return err
+	}
+	if len(unformatted) > 0 {
+		return fmt.Errorf("gofmt: %d file(s) need formatting (run: gofmt -w <files>):\n  %s",
+			len(unformatted), strings.Join(unformatted, "\n  "))
+	}
+
+	for _, step := range [][]string{
+		{"go", "build", "./..."},
+		{"go", "vet", "./..."},
+		{"go", "test", "./..."},
+	} {
+		fmt.Printf("• %s\n", strings.Join(step, " "))
+		if err := runCmd(root, step[0], step[1:]...); err != nil {
+			return fmt.Errorf("%s failed: %w", strings.Join(step, " "), err)
+		}
+	}
+
+	if _, err := exec.LookPath("golangci-lint"); err == nil {
+		fmt.Println("• golangci-lint run")
+		if err := runCmd(root, "golangci-lint", "run"); err != nil {
+			return fmt.Errorf("golangci-lint run failed: %w", err)
+		}
+	} else {
+		fmt.Println("• golangci-lint not found — skipping (CI still runs it)")
+	}
+	return nil
+}
+
+// gofmtList returns the gofmt-unformatted .go files under root, excluding the
+// vendored tree (which we don't own and CI doesn't lint).
+func gofmtList(root string) ([]string, error) {
+	cmd := exec.Command("gofmt", "-l", ".")
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("gofmt: %w", err)
+	}
+	var bad []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		norm := strings.ReplaceAll(line, "\\", "/")
+		if norm == "vendor" || strings.HasPrefix(norm, "vendor/") || strings.Contains(norm, "/vendor/") {
+			continue
+		}
+		bad = append(bad, line)
+	}
+	return bad, nil
+}
 
 var versionLineRe = regexp.MustCompile(`("version"\s*:\s*")([^"]+)(")`)
 

@@ -56,9 +56,21 @@ Bump it with the release tool — never by hand:
 go run ./tools/release <X.Y.Z | patch | minor | major>
 ```
 
-That edits `package.json`, runs `go test ./cmd/...`, commits just that file as
+It first runs the **same gates CI runs** — `gofmt -l`, `go build/vet/test ./...`,
+and `golangci-lint run` (when installed) — and aborts without touching anything
+if any fail. Then it edits `package.json`, commits just that file as
 `chore: increase version to X.Y.Z`, and creates the `vX.Y.Z` tag. Add `--push`
-to push the branch and tag too, or `--dry-run` to preview.
+to push the branch and tag too, `--dry-run` to preview, or `--skip-checks` to
+bypass the gate (CI still enforces it on the tag).
+
+Run the gate on its own anytime (no bump) to check a release will pass CI:
+
+```
+go run ./tools/release --check
+```
+
+(Uses your locally installed `golangci-lint`; CI pins v2.11.3, so keep yours
+close — the flake devShell provides one.)
 
 The CLI validates the connector version at startup and errors if they differ.
 
