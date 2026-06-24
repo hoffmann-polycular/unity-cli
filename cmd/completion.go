@@ -68,6 +68,15 @@ func completionCmd(args []string) error {
 // completions. Errors are silenced (printed to stderr only) so the shell
 // stays responsive.
 func completeDispatchCmd(args []string) error {
+	// Optional leading "--shell <name>": when present, each candidate is quoted
+	// for that shell so values containing spaces or metacharacters insert as a
+	// single token. Scripts for shells that auto-quote (zsh, fish) omit it.
+	shell := ""
+	if len(args) >= 2 && args[0] == "--shell" {
+		shell = args[1]
+		args = args[2:]
+	}
+
 	if len(args) < 1 {
 		return nil
 	}
@@ -85,9 +94,55 @@ func completeDispatchCmd(args []string) error {
 
 	candidates := computeCandidates(idx, words, current)
 	for _, c := range candidates {
-		fmt.Println(c)
+		fmt.Println(quoteForShell(shell, c))
 	}
 	return nil
+}
+
+// quoteForShell makes a completion candidate safe to insert as a single token
+// in the named shell. This is the external-shell counterpart to the REPL's
+// renderCompletionSuffix: each shell inserts text under its own grammar, so
+// the escaping can't be shared with the REPL (or between shells) — but keeping
+// it here in Go means one testable place instead of four shell dialects. The
+// generated scripts select the shell via the `--shell` flag. zsh's compadd and
+// fish's completion engine quote candidates themselves, so they (and the empty
+// default) pass through unchanged.
+func quoteForShell(shell, s string) string {
+	switch shell {
+	case "bash":
+		return bashEscapeWord(s)
+	case "powershell", "pwsh":
+		return powershellQuoteWord(s)
+	default:
+		return s
+	}
+}
+
+// bashEscapeWord backslash-escapes the characters that are special in an
+// unquoted bash word — whitespace plus the syntax/expansion metacharacters —
+// so an inserted COMPREPLY value round-trips to the literal path. Characters
+// that are part of the path grammar ("/", ":", "[", "]") are left alone.
+func bashEscapeWord(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case ' ', '\t', '\n', '"', '\'', '\\', '$', '`', ';', '|', '&', '(', ')', '<', '>':
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// powershellQuoteWord wraps a candidate in single quotes (doubling any embedded
+// single quote) when it contains whitespace or a character PowerShell would
+// treat as a token boundary; simple candidates are returned unquoted. Inside a
+// single-quoted string everything but ' is literal.
+func powershellQuoteWord(s string) string {
+	if !strings.ContainsAny(s, " \t\n\"'`$;,|&(){}@#<>") {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
 func parseInt(s string) (int, error) {
@@ -503,9 +558,12 @@ _unity_cli_complete() {
     cword=$COMP_CWORD
     local idx=$((cword - 1))
     local out line
-    out=$(unity-cli __complete "$idx" "${words[@]:1}" 2>/dev/null)
+    # --shell bash → candidates come back backslash-escaped, ready to insert.
+    out=$(unity-cli __complete --shell bash "$idx" "${words[@]:1}" 2>/dev/null)
     COMPREPLY=()
-    # Read line-by-line so candidates with spaces survive intact.
+    # Read line-by-line so candidates with spaces survive intact. The prefix
+    # test compares against the (unescaped) typed word, which is the common
+    # case — escaped chars in a candidate appear only after the typed prefix.
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         if [[ "$line" == "$cur"* ]]; then
@@ -576,11 +634,16 @@ Register-ArgumentCompleter -Native -CommandName unity-cli -ScriptBlock {
     $idx = $args.Count - 1
     if ($idx -lt 0) { $idx = 0 }
 
-    $out = & unity-cli __complete $idx @args 2>$null
+    # --shell powershell → candidates come back single-quoted when they need
+    # it (spaces/metacharacters), ready to use as the inserted CompletionText.
+    $out = & unity-cli __complete --shell powershell $idx @args 2>$null
     if (-not $out) { return }
     $out -split '\r?\n' | Where-Object { $_ } | ForEach-Object {
+        $insert = $_
+        # Strip the wrapping single quotes (and un-double '') for a clean menu label.
+        $display = $insert -replace "^'(.*)'$", '$1' -replace "''", "'"
         [System.Management.Automation.CompletionResult]::new(
-            $_, $_, 'ParameterValue', $_)
+            $insert, $display, 'ParameterValue', $display)
     }
 }
 `
