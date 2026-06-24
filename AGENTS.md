@@ -38,28 +38,35 @@ go test -tags integration ./...
 
 ## Version Management
 
-CLI (Go) and Connector (C#) must always share the same release version. Bump
-these three version strings on every release, then tag:
+`unity-connector/package.json` is the **single source of truth** for the
+release version. CLI (Go) and Connector (C#) always share it; nothing else
+hard-codes it:
 
-- `unity-connector/package.json` — `version: "X.Y.Z"`
-- `unity-connector/Editor/Heartbeat.cs` — `CONNECTOR_VERSION = "X.Y.Z"`
-- `flake.nix` — `version = "X.Y.Z"` (no leading `v`, Nix convention)
-- Git tag — `vX.Y.Z`
+- The connector reads it at runtime (`Heartbeat.GetConnectorVersion` via
+  `PackageInfo`) — `Heartbeat.cs` has no version literal.
+- `flake.nix` derives `version` from it
+  (`(builtins.fromJSON (builtins.readFile ./unity-connector/package.json)).version`)
+  and stamps `main.Version` as `v${version}`.
+- Release-binary builds stamp `main.Version` from the git tag
+  (`${GITHUB_REF_NAME}`), so both install paths report the same `vX.Y.Z`.
 
-The flake's injected `main.Version` derives from its `version` attr as
-`v${version}`, so you do **not** edit it by hand — it always tracks the line
-above with the leading `v` added. Release-binary builds stamp `main.Version`
-straight from the git tag (`${GITHUB_REF_NAME}`), so both install paths report
-the same `vX.Y.Z`.
+Bump it with the release tool — never by hand:
+
+```
+go run ./tools/release <X.Y.Z | patch | minor | major>
+```
+
+That edits `package.json`, runs `go test ./cmd/...`, commits just that file as
+`chore: increase version to X.Y.Z`, and creates the `vX.Y.Z` tag. Add `--push`
+to push the branch and tag too, or `--dry-run` to preview.
 
 The CLI validates the connector version at startup and errors if they differ.
 
-Two guards catch drift before a release ships:
-- `go test ./cmd/...` (`TestConnectorVersionsInSync`) compares `package.json`
-  against `Heartbeat.cs` on every CI run.
+Guards before a release ships:
+- `go test ./cmd/...` (`TestConnectorVersionFormat`, `TestFlakeVersionsInSync`)
+  checks `package.json` is valid semver and that `flake.nix` still derives from it.
 - The `verify-tag` job in `.github/workflows/release.yml` refuses to build
-  unless `package.json`, `Heartbeat.cs`, and `flake.nix` all match the pushed
-  tag (with the leading `v` stripped).
+  unless `package.json` matches the pushed tag (leading `v` stripped).
 
 ### Init from dev builds
 
@@ -74,12 +81,12 @@ from a local working copy.
 ## Release Flow
 
 1. Run all verification steps
-2. Bump version in `package.json`, `Heartbeat.cs`, and `flake.nix` (`version =`)
-3. Commit + push
-4. Push new tag (`vX.Y.Z`) if CLI changed
-5. Wait for CI + Release: `gh run watch --exit-status` (background)
-6. `go clean -cache -testcache`
-7. On success: `unity-cli update`
+2. `go run ./tools/release <X.Y.Z | patch | minor | major>` — bumps
+   `package.json`, runs tests, commits, and tags `vX.Y.Z`
+3. `git push && git push origin vX.Y.Z` (or pass `--push` in step 2)
+4. Wait for CI + Release: `gh run watch --exit-status` (background)
+5. `go clean -cache -testcache`
+6. On success: `unity-cli update`
 
 ## Rules
 

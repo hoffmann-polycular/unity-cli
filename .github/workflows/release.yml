@@ -9,26 +9,22 @@ permissions:
   contents: write
 
 jobs:
-  # Fail-fast guard: the git tag MUST agree with every place in the source
-  # tree that hard-codes a version. Without this, a tag push with a missed
-  # version bump would build five binaries stamped vX.Y.Z against a tree
-  # whose connector still says X.Y.(Z-1), and every install would explode
-  # at runtime with a connector-version-mismatch error.
+  # Fail-fast guard: the git tag MUST agree with the canonical version in the
+  # source tree. Without this, a tag push with a missed version bump would build
+  # five binaries stamped vX.Y.Z against a tree whose connector still says
+  # X.Y.(Z-1), and every install would explode at runtime with a
+  # connector-version-mismatch error.
   #
-  # Sources checked against the tag with the leading 'v' stripped (X.Y.Z):
-  #   - unity-connector/package.json           "version": "X.Y.Z"
-  #   - unity-connector/Editor/Heartbeat.cs     CONNECTOR_VERSION = "X.Y.Z"
-  #   - flake.nix                              version = "X.Y.Z"
-  #
-  # The flake's injected main.Version derives from `version` above as
-  # `-X main.Version=v${version}`, so it tracks the checked attr automatically
-  # and needs no separate check here.
+  # unity-connector/package.json is the single source of truth (X.Y.Z, no
+  # leading 'v'). The connector reads it at runtime via PackageInfo, and
+  # flake.nix derives `version` from it (then stamps `-X main.Version=v${version}`),
+  # so this is the only literal to check against the tag.
   verify-tag:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
-      - name: Verify tag matches versions in source
+      - name: Verify tag matches version in source
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
@@ -37,26 +33,12 @@ jobs:
           echo "Tag (stripped):  ${TAG_VERSION}"
 
           PKG_VERSION=$(jq -r .version unity-connector/package.json)
-          HB_VERSION=$(grep -oP 'CONNECTOR_VERSION\s*=\s*"\K[^"]+' unity-connector/Editor/Heartbeat.cs)
-          FLAKE_VERSION=$(grep -oP 'version\s*=\s*"\K[^"]+' flake.nix | head -1)
 
-          fail=0
-          check() {
-            local label="$1" got="$2" want="$3"
-            if [ "$got" = "$want" ]; then
-              echo "  OK:   $label = $got"
-            else
-              echo "::error::$label = '$got' does not match expected '$want'"
-              fail=1
-            fi
-          }
-          check "unity-connector/package.json"            "$PKG_VERSION"   "$TAG_VERSION"
-          check "unity-connector/Editor/Heartbeat.cs"     "$HB_VERSION"    "$TAG_VERSION"
-          check "flake.nix version"                       "$FLAKE_VERSION" "$TAG_VERSION"
-
-          if [ "$fail" -ne 0 ]; then
-            echo
-            echo "::error::Refusing to release: bump every source version to ${TAG_VERSION} before tagging."
+          if [ "$PKG_VERSION" = "$TAG_VERSION" ]; then
+            echo "  OK:   unity-connector/package.json = $PKG_VERSION"
+          else
+            echo "::error::unity-connector/package.json = '$PKG_VERSION' does not match tag '$TAG_VERSION'"
+            echo "::error::Refusing to release: run 'go run ./tools/release ${TAG_VERSION}' before tagging."
             exit 1
           fi
 

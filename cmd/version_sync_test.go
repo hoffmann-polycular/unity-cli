@@ -21,38 +21,16 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 )
 
-// TestConnectorVersionsInSync asserts that the version string declared
-// in the Unity package manifest matches the CONNECTOR_VERSION constant
-// hard-coded into the connector's Heartbeat.cs.
-//
-// These two values MUST agree: the package.json version is what Unity
-// Package Manager shows users, while CONNECTOR_VERSION is what the
-// connector reports over the heartbeat — which the CLI then compares
-// against its own build version (cmd/status.go checkConnectorVersion).
-//
-// Drift between them is a release-blocker: users would install
-// package.json version X but the runtime check would compare against
-// Heartbeat.cs version Y, and every command would abort with a
-// confusing "connector version mismatch" error.
-//
-// Bump them together. Always.
-func TestConnectorVersionsInSync(t *testing.T) {
-	repoRoot := findRepoRoot(t)
-
-	pkgVersion := readPackageJSONVersion(t, filepath.Join(repoRoot, "unity-connector", "package.json"))
-	hbVersion := readHeartbeatVersion(t, filepath.Join(repoRoot, "unity-connector", "Editor", "Heartbeat.cs"))
-
-	if pkgVersion != hbVersion {
-		t.Fatalf("version drift between Unity package and connector runtime:\n"+
-			"  unity-connector/package.json:        %q\n"+
-			"  unity-connector/Editor/Heartbeat.cs: %q\n"+
-			"\nBoth must be bumped together. See cmd/status.go checkConnectorVersion "+
-			"for why this matters.", pkgVersion, hbVersion)
-	}
-}
+// unity-connector/package.json is the single source of truth for the version.
+// The connector reads it at runtime (Heartbeat.GetConnectorVersion via
+// PackageInfo) and the flake derives from it (see TestFlakeVersionsInSync), so
+// there is no second literal to drift against — the old
+// TestConnectorVersionsInSync (package.json vs a CONNECTOR_VERSION constant) is
+// gone along with that constant.
 
 // TestConnectorVersionFormat sanity-checks the version literal: it must
 // be a non-empty, non-"dev" semver-shaped string. Catches typos like
@@ -110,17 +88,16 @@ func readPackageJSONVersion(t *testing.T, path string) string {
 	return manifest.Version
 }
 
-// TestFlakeVersionsInSync asserts that the flake's `version` attribute matches
-// the canonical version in unity-connector/package.json, and that the injected
-// main.Version is *derived* from that attribute rather than hard-coded.
+// TestFlakeVersionsInSync asserts that the flake derives its version from
+// unity-connector/package.json rather than carrying its own literal, and that
+// the injected main.Version is derived from that attribute.
 //
 // The ldflag deliberately reads `-X main.Version=v${version}`: the leading "v"
 // is added programmatically so the binary's reported version always tracks the
-// `version` attr (which is checked against package.json) and can never drift to
-// a stale literal. We assert the derivation is intact, not a numeric value.
+// package.json-derived attr and can never drift to a stale literal. We assert
+// the derivation is intact, not a numeric value.
 func TestFlakeVersionsInSync(t *testing.T) {
 	repoRoot := findRepoRoot(t)
-	pkgVersion := readPackageJSONVersion(t, filepath.Join(repoRoot, "unity-connector", "package.json"))
 
 	data, err := os.ReadFile(filepath.Join(repoRoot, "flake.nix"))
 	if err != nil {
@@ -128,12 +105,14 @@ func TestFlakeVersionsInSync(t *testing.T) {
 	}
 	src := string(data)
 
-	flakeVersion := extractFlakeField(t, src, `version\s*=\s*"([^"]+)"`, "version")
-	ldflag := extractFlakeField(t, src, `-X\s+main\.Version=([^"\s]+)`, "-X main.Version")
-
-	if flakeVersion != pkgVersion {
-		t.Errorf("flake.nix version %q != package.json %q", flakeVersion, pkgVersion)
+	if !strings.Contains(src, `fromJSON`) ||
+		!strings.Contains(src, `./unity-connector/package.json`) {
+		t.Errorf("flake.nix should derive `version` from unity-connector/package.json " +
+			"(builtins.fromJSON (builtins.readFile ./unity-connector/package.json)).version; " +
+			"found a different/hard-coded form")
 	}
+
+	ldflag := extractFlakeField(t, src, `-X\s+main\.Version=([^"\s]+)`, "-X main.Version")
 	if ldflag != "v${version}" {
 		t.Errorf("flake.nix ldflag -X main.Version=%q is not derived from the version attr; "+
 			"expected the literal %q so it tracks the checked attr with a leading v", ldflag, "v${version}")
@@ -147,24 +126,4 @@ func extractFlakeField(t *testing.T, src, pattern, label string) string {
 		t.Fatalf("could not find %q in flake.nix", label)
 	}
 	return m[1]
-}
-
-// heartbeatVersionRe extracts the literal from:
-//
-//	const string CONNECTOR_VERSION = "0.3.18";
-//
-// Whitespace tolerant; modifiers (public/private/static) may precede the const.
-var heartbeatVersionRe = regexp.MustCompile(`const\s+string\s+CONNECTOR_VERSION\s*=\s*"([^"]+)"\s*;`)
-
-func readHeartbeatVersion(t *testing.T, path string) string {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	m := heartbeatVersionRe.FindSubmatch(data)
-	if m == nil {
-		t.Fatalf("could not find `const string CONNECTOR_VERSION = \"...\";` in %s", path)
-	}
-	return string(m[1])
 }

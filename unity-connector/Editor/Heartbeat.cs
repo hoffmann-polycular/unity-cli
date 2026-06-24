@@ -21,7 +21,7 @@ namespace UnityCliConnector
 
         static double s_LastWrite;
         const double INTERVAL = 0.5;
-        const string CONNECTOR_VERSION = "0.4.2";
+        static string s_Version;
         static string s_ForcedState;
         static double s_CompileRequestTime;
         static string s_FilePath;
@@ -119,9 +119,27 @@ namespace UnityCliConnector
             }
         }
 
+        // Read the version from the package manifest (package.json) at runtime
+        // package.json is the single source of truth. 
+        // the result is cached after first lookup.
         static string GetConnectorVersion()
         {
-            return CONNECTOR_VERSION;
+            if (s_Version != null) return s_Version;
+            try
+            {
+                var pkg = UnityEditor.PackageManager.PackageInfo.FindForAssembly(
+                    typeof(Heartbeat).Assembly);
+                if (pkg != null && !string.IsNullOrEmpty(pkg.version))
+                {
+                    s_Version = pkg.version;
+                    return s_Version;
+                }
+            }
+            catch
+            {
+            }
+            s_Version = "0.0.0-unknown";
+            return s_Version;
         }
 
         static string GetState()

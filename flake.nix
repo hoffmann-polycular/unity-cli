@@ -10,11 +10,14 @@
     in {
       packages = forAllSystems (system:
         let pkgs = nixpkgs.legacyPackages.${system}; in {
-          default = let version = "0.4.2"; in pkgs.buildGoModule {
+          default = let version = (builtins.fromJSON (builtins.readFile ./unity-connector/package.json)).version; in pkgs.buildGoModule {
             pname = "unity-cli";
             inherit version;
             src = ./.;
             vendorHash = null;
+            # Only the root command — keep dev helpers like tools/release out of
+            # the installed output.
+            subPackages = [ "." ];
             ldflags = [ "-s" "-w" "-X main.Version=v${version}" ];
           };
         });
