@@ -146,12 +146,25 @@ namespace UnityCliConnector.Tools
 				candidates = PathResolver.GetImmediateChildren(parentRes.Value);
 			}
 
+			// Prefix the completed name with exactly what the user typed up to and
+			// including the last '/'. This preserves a leading '/' for absolute
+			// paths (prefix "/Sce" → "/SceneSetup", not the bare "SceneSetup"
+			// that parentPath would yield, since parentPath is "" at root level).
+			var emitPrefix = lastSlash < 0 ? "" : prefix.Substring(0, lastSlash + 1);
+
 			var seenNames = new HashSet<string>();
 			foreach (var go in candidates)
 			{
 				if (go == null) continue;
 				if (!string.IsNullOrEmpty(namePartial) && !go.name.StartsWith(namePartial)) continue;
-				var emit = string.IsNullOrEmpty(parentPath) ? go.name : parentPath + "/" + go.name;
+				var emit = emitPrefix + go.name;
+				// Append "/" when the object has children so a Tab on an exact
+				// name descends into the hierarchy instead of completing to
+				// itself (empty suffix = no-op). Mirrors asset-folder completion;
+				// the CLI's shell scripts already suppress the trailing space
+				// after "/".
+				if (go.transform.childCount > 0)
+					emit += "/";
 				// Avoid emitting duplicate names (caller can disambiguate with [n] later).
 				if (seenNames.Add(emit))
 					outList.Add(emit);
