@@ -181,6 +181,11 @@ namespace UnityCliConnector.Tools
 			// explicitly use Additive.
 			if (mode == OpenSceneMode.Single)
 			{
+				// A dirty prefab stage would pop Unity's blocking "Save changes?"
+				// dialog on the stage switch and wedge the agent — refuse first.
+				var stageGuard = Prefab.GuardDirtyPrefabStage($"Opening scene '{assetPath}' (mode=single)");
+				if (stageGuard != null) return stageGuard;
+
 				for (var i = 0; i < SceneManager.sceneCount; i++)
 				{
 					var s = SceneManager.GetSceneAt(i);

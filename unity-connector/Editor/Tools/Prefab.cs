@@ -681,6 +681,13 @@ namespace UnityCliConnector.Tools
 			if (string.IsNullOrWhiteSpace(assetPath))
 				return new ErrorResponse("prefab open requires a prefab asset path.");
 
+			// Opening another prefab while one with unsaved changes is open would
+			// trigger Unity's blocking save dialog (this includes re-opening the
+			// same prefab, which reloads it from disk). Refuse and let the agent
+			// resolve the stage explicitly.
+			var openGuard = GuardDirtyPrefabStage($"Opening prefab '{assetPath}'");
+			if (openGuard != null) return openGuard;
+
 			var asset = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
 			if (asset == null)
 				return new ErrorResponse($"Prefab not found at '{assetPath}'.");
@@ -784,6 +791,32 @@ namespace UnityCliConnector.Tools
 				System.Reflection.BindingFlags.Static
 				| System.Reflection.BindingFlags.NonPublic);
 			if (clearScene != null) clearScene.Invoke(null, new object[] { stage.scene });
+		}
+
+		// Refuse implicit prefab-stage transitions that would otherwise pop
+		// Unity's modal "Save changes?" dialog. That dialog runs a nested native
+		// loop on the editor main thread, which stalls the connector's command
+		// queue and wedges the agent until a human dismisses it. Commands that
+		// switch away from the current prefab stage (opening a scene or a
+		// different prefab) call this first and bail out loudly instead, telling
+		// the agent to resolve the stage explicitly via `prefab close`.
+		//
+		// Only blocks when a stage is open AND dirty (a clean stage closes
+		// silently). Re-opening the same dirty prefab is also blocked: Unity's
+		// OpenPrefab reloads it from disk, which discards the in-memory changes
+		// via the same modal — so there is no safe "same path" exception.
+		internal static ErrorResponse GuardDirtyPrefabStage(string action)
+		{
+			var stage = UnityEditor.SceneManagement.PrefabStageUtility.GetCurrentPrefabStage();
+			if (stage == null || !stage.scene.isDirty)
+				return null;
+
+			return new ErrorResponse(
+				$"A prefab stage with unsaved changes is open ('{stage.assetPath}'). " +
+				$"{action} would discard those changes and trigger Unity's blocking " +
+				"\"Save changes?\" dialog. Run `prefab close` to save (or " +
+				"`prefab close --discard` to drop them) first.",
+				ErrorKind.Usage);
 		}
 
 		// =========================================================================
