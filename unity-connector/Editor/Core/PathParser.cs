@@ -308,6 +308,11 @@ namespace UnityCliConnector
 
             if (!string.IsNullOrEmpty(hierarchyPart))
             {
+                // Tolerate a trailing slash ("/Foo/" ≡ "/Foo"): tab-completion
+                // emits a trailing slash for containers, and it matches the
+                // forgiving "cd dir/" shell convention. A leading or interior
+                // empty segment ("//A", "/A//B") still errors below.
+                hierarchyPart = hierarchyPart.TrimEnd('/');
                 foreach (var name in hierarchyPart.Split('/'))
                 {
                     if (string.IsNullOrEmpty(name))

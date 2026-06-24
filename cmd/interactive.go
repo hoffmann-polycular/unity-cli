@@ -659,23 +659,25 @@ type replCompleter struct{}
 
 // Do plugs the existing computeCandidates into ergochat/readline's
 // AutoCompleter interface. readline gives us the full line up to the
-// cursor; we tokenize, identify the word being completed, and return
-// the candidates (truncated to the user-typed prefix length, as readline
-// requires).
+// cursor; we tokenize, identify the word being completed, and return the
+// candidate suffixes (everything after the user-typed prefix), with `length`
+// the typed-prefix rune count — so current="fi", candidate="find" yields
+// (["nd"], 2).
+//
+// Tokens are taken from shlexForCompletion (which, unlike shlex, tolerates an
+// unterminated quote on the word being completed). Suffixes are escaped/quoted
+// by renderCompletionSuffix so paths containing spaces re-parse correctly.
 func (replCompleter) Do(line []rune, pos int) ([][]rune, int) {
 	prefix := string(line[:pos])
-	tokens, err := shlex(prefix, false)
-	if err != nil {
-		return nil, 0
-	}
+	tokens, openQuote, atWordStart := shlexForCompletion(prefix)
 
-	// Trailing whitespace = starting a new (empty) word.
-	trailingSpace := pos > 0 && (line[pos-1] == ' ' || line[pos-1] == '\t')
 	var current string
 	idx := len(tokens)
-	if !trailingSpace && len(tokens) > 0 {
+	if !atWordStart && len(tokens) > 0 {
 		current = tokens[len(tokens)-1]
 		idx = len(tokens) - 1
+	} else {
+		openQuote = 0 // new word: no current token, so no quote context
 	}
 
 	// Pad words so words[idx] is valid for computeCandidates.
@@ -686,19 +688,58 @@ func (replCompleter) Do(line []rune, pos int) ([][]rune, int) {
 
 	candidates := computeCandidates(idx, words, current)
 
-	// readline expects each returned []rune to be the *suffix* to append
-	// (everything after the user-typed prefix), and `length` to be the
-	// length of the typed prefix. So if current = "fi" and candidate =
-	// "find", we return ([]rune("nd"), 2).
-	prefLen := len([]rune(current))
-	out := make([][]rune, 0, len(candidates))
+	// Keep only candidates that extend the (unescaped, logical) current token.
+	matches := make([]string, 0, len(candidates))
 	for _, c := range candidates {
-		if !strings.HasPrefix(c, current) {
-			continue
+		if strings.HasPrefix(c, current) {
+			matches = append(matches, c)
 		}
-		out = append(out, []rune(c[len(current):]))
+	}
+	single := len(matches) == 1
+
+	prefLen := len([]rune(current))
+	out := make([][]rune, 0, len(matches))
+	for _, c := range matches {
+		out = append(out, []rune(renderCompletionSuffix(c[len(current):], openQuote, single)))
 	}
 	return out, prefLen
+}
+
+// renderCompletionSuffix escapes/quotes a completion suffix so the text
+// readline appends re-parses (via the REPL tokenizer) back to the intended
+// token. openQuote is 0 (the token is unquoted → backslash-escape shell
+// metacharacters), '"' or '\'' (the token sits inside that quote → the suffix
+// is literal apart from that quote's own escapes). When the suffix is the sole
+// candidate and the token is quoted, a leaf gets its closing quote appended; a
+// container (trailing "/") is left open so the next Tab can descend into it.
+func renderCompletionSuffix(suffix string, openQuote byte, single bool) string {
+	switch openQuote {
+	case '"':
+		s := strings.ReplaceAll(suffix, `\`, `\\`)
+		s = strings.ReplaceAll(s, `"`, `\"`)
+		if single && !strings.HasSuffix(suffix, "/") {
+			s += `"`
+		}
+		return s
+	case '\'':
+		// Inside single quotes everything is literal; a ' cannot be escaped
+		// (names containing one aren't completable in single-quote mode).
+		s := suffix
+		if single && !strings.HasSuffix(suffix, "/") {
+			s += "'"
+		}
+		return s
+	default:
+		var b strings.Builder
+		for _, r := range suffix {
+			switch r {
+			case ' ', '\t', '|', '"', '\'', '\\':
+				b.WriteByte('\\')
+			}
+			b.WriteRune(r)
+		}
+		return b.String()
+	}
 }
 
 // --------------------------------------------------------------------

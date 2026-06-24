@@ -78,6 +78,93 @@ func splitPipeline(line string) ([][]string, error) {
 // false, `|` is a literal character (used by the completion adapter).
 const pipeSentinel = "\x00|"
 
+// shlexForCompletion tokenizes a line for tab-completion. Unlike shlex it
+// never errors: an unterminated quote or a trailing backslash on the final
+// token is tolerated. The open quote (if any) is reported via openQuote
+// ('"' or '\'', else 0) so the completer can complete *inside* the quote and
+// close it. atWordStart is true when the cursor sits at the start of a fresh
+// word — the input is empty or ends in unquoted, unescaped whitespace — i.e.
+// the token being completed is empty. `|` is treated as a literal; the
+// completer only ever sees a single pipeline segment.
+func shlexForCompletion(line string) (tokens []string, openQuote byte, atWordStart bool) {
+	var cur strings.Builder
+	inWord := false
+	atWordStart = true
+
+	flush := func() {
+		if inWord {
+			tokens = append(tokens, cur.String())
+			cur.Reset()
+			inWord = false
+		}
+	}
+
+	i, n := 0, len(line)
+	for i < n {
+		c := line[i]
+		switch c {
+		case ' ', '\t':
+			flush()
+			atWordStart = true
+			i++
+
+		case '\\':
+			inWord = true
+			atWordStart = false
+			if i+1 >= n {
+				i++ // dangling backslash: drop the incomplete escape
+				break
+			}
+			cur.WriteByte(line[i+1])
+			i += 2
+
+		case '"':
+			inWord = true
+			atWordStart = false
+			i++
+			for i < n && line[i] != '"' {
+				if line[i] == '\\' && i+1 < n {
+					switch line[i+1] {
+					case '"', '\\':
+						cur.WriteByte(line[i+1])
+						i += 2
+						continue
+					}
+				}
+				cur.WriteByte(line[i])
+				i++
+			}
+			if i >= n {
+				openQuote = '"'
+			} else {
+				i++ // skip closing "
+			}
+
+		case '\'':
+			inWord = true
+			atWordStart = false
+			i++
+			for i < n && line[i] != '\'' {
+				cur.WriteByte(line[i])
+				i++
+			}
+			if i >= n {
+				openQuote = '\''
+			} else {
+				i++ // skip closing '
+			}
+
+		default:
+			cur.WriteByte(c)
+			inWord = true
+			atWordStart = false
+			i++
+		}
+	}
+	flush()
+	return tokens, openQuote, atWordStart
+}
+
 func shlex(line string, pipelineMode bool) ([]string, error) {
 	var tokens []string
 	var cur strings.Builder
