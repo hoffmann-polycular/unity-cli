@@ -27,7 +27,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/chzyer/readline"
+	"github.com/ergochat/readline"
 	"github.com/hoffmann-polycular/unity-cli/internal/cli/exit"
 	"github.com/hoffmann-polycular/unity-cli/internal/client"
 )
@@ -39,7 +39,7 @@ import (
 //  1. Parse flags + optional positional project.
 //  2. Initialize session (sticky --project, --port, --timeout).
 //  3. Best-effort resolve initial Unity instance (warn if missing).
-//  4. Build a chzyer/readline.Instance bound to stdin/stdout/stderr
+//  4. Build an ergochat/readline.Instance bound to stdin/stdout/stderr
 //     with persistent history.
 //  5. Loop: read line, tokenize, dispatch (built-in or pipeline).
 func interactiveCmd(args []string) error {
@@ -49,7 +49,7 @@ func interactiveCmd(args []string) error {
 	}
 
 	historyFile := defaultHistoryPath()
-	rl, err := readline.NewEx(&readline.Config{
+	rl, err := readline.NewFromConfig(&readline.Config{
 		Prompt:                 session.prompt(),
 		HistoryFile:            historyFile,
 		HistoryLimit:           1000,
@@ -68,7 +68,7 @@ func interactiveCmd(args []string) error {
 
 	for {
 		rl.SetPrompt(session.prompt())
-		line, err := rl.Readline()
+		line, err := rl.ReadLine()
 		if err != nil {
 			// readline.ErrInterrupt = Ctrl-C: clear and continue. We
 			// intentionally do not double-tap to exit (some other REPLs do);
@@ -96,11 +96,10 @@ func interactiveCmd(args []string) error {
 			return nil
 		}
 
-		// Defense-in-depth: redraw the prompt and reset any escape-sequence
-		// state readline might have inadvertently entered while the command
-		// ran. If a command output stray control bytes that the terminal
-		// echoed back into stdin, this clears the visible mess; the prompt
-		// itself is re-emitted on the next Readline() call regardless.
+		// Redraw the prompt after the command's output. If a command emitted
+		// stray control bytes that the terminal echoed back, this clears the
+		// visible mess; the prompt itself is re-emitted on the next ReadLine()
+		// call regardless.
 		rl.Refresh()
 	}
 }
@@ -658,7 +657,7 @@ const stdinFastPathLimit = 32 * 1024
 
 type replCompleter struct{}
 
-// Do plugs the existing computeCandidates into chzyer/readline's
+// Do plugs the existing computeCandidates into ergochat/readline's
 // AutoCompleter interface. readline gives us the full line up to the
 // cursor; we tokenize, identify the word being completed, and return
 // the candidates (truncated to the user-typed prefix length, as readline
