@@ -734,9 +734,15 @@ namespace UnityCliConnector.Tools
 				}
 				else if (stage.prefabContentsRoot != null)
 				{
-					// Save changes back to the asset.
+					// Save changes back to the asset. SaveAsPrefabAsset persists
+					// the asset on disk but leaves the stage's in-memory preview
+					// scene marked dirty, so the GoToMainStage() below would still
+					// trigger Unity's modal "Save changes?" prompt — which blocks
+					// the editor main thread and wedges the agent. Clear the stage
+					// dirtiness after saving so the transition is silent.
 					PrefabUtility.SaveAsPrefabAsset(stage.prefabContentsRoot, assetPath);
 					AssetDatabase.SaveAssets();
+					ClearStageDirtiness(stage);
 				}
 
 				UnityEditor.SceneManagement.StageUtility.GoToMainStage();
