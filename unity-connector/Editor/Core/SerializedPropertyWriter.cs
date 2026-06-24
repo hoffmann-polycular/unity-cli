@@ -376,7 +376,11 @@ namespace UnityCliConnector
 
 		private static Result<Object> ResolveByInstanceId(int id)
 		{
+#if UNITY_6000_3_OR_NEWER
+			var o = EditorUtility.EntityIdToObject(id);
+#else
 			var o = EditorUtility.InstanceIDToObject(id);
+#endif
 			if (o == null) return Result<Object>.Error($"No object with instance ID #{id}.");
 			return Result<Object>.Success(o);
 		}

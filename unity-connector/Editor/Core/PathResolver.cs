@@ -175,7 +175,11 @@ namespace UnityCliConnector
 
 		private static Result<List<GameObject>> ResolveInstanceIdAsList(ParsedPath parsed)
 		{
+#if UNITY_6000_3_OR_NEWER
+			var obj = EditorUtility.EntityIdToObject(parsed.InstanceId);
+#else
 			var obj = EditorUtility.InstanceIDToObject(parsed.InstanceId);
+#endif
 			if (obj == null)
 				return Result<List<GameObject>>.Error($"No object with instance ID #{parsed.InstanceId}.", ErrorKind.NotFound);
 			GameObject go = null;
