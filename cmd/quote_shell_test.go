@@ -12,14 +12,14 @@ import "testing"
 
 func TestQuoteForShell_Bash(t *testing.T) {
 	cases := map[string]string{
-		"/Simple":                  "/Simple",                          // no specials → unchanged
-		"/Directional Light":       `/Directional\ Light`,              // space escaped
-		"/A/B C/D":                 `/A/B\ C/D`,                        // slash preserved, space escaped
-		"/SceneSetup/":             "/SceneSetup/",                     // trailing slash preserved
-		"/World/Enemy[1]":          "/World/Enemy[1]",                  // path grammar [] untouched
-		"/Player:Light.intensity":  "/Player:Light.intensity",         // ':' '.' untouched
-		"/Weird$(rm -rf)/x":        `/Weird\$\(rm\ -rf\)/x`,            // injection chars escaped
-		"/Tab\tName":               "/Tab\\\tName",                     // tab escaped
+		"/Simple":                 "/Simple",                 // no specials → unchanged
+		"/Directional Light":      `/Directional\ Light`,     // space escaped
+		"/A/B C/D":                `/A/B\ C/D`,               // slash preserved, space escaped
+		"/SceneSetup/":            "/SceneSetup/",            // trailing slash preserved
+		"/World/Enemy[1]":         "/World/Enemy[1]",         // path grammar [] untouched
+		"/Player:Light.intensity": "/Player:Light.intensity", // ':' '.' untouched
+		"/Weird$(rm -rf)/x":       `/Weird\$\(rm\ -rf\)/x`,   // injection chars escaped
+		"/Tab\tName":              "/Tab\\\tName",            // tab escaped
 	}
 	for in, want := range cases {
 		if got := quoteForShell("bash", in); got != want {
@@ -30,12 +30,12 @@ func TestQuoteForShell_Bash(t *testing.T) {
 
 func TestQuoteForShell_PowerShell(t *testing.T) {
 	cases := map[string]string{
-		"/Simple":                 "/Simple",                  // no specials → unchanged
-		"/World/Enemy[1]":         "/World/Enemy[1]",          // [] not a PS boundary → unquoted
-		"/Directional Light":      "'/Directional Light'",     // space → single-quoted
-		"/A B/C D/":               "'/A B/C D/'",              // trailing slash kept inside quotes
-		"/It's Here":              "'/It''s Here'",           // embedded ' doubled
-		"/Cost$5 Item":            "'/Cost$5 Item'",          // $ literal inside single quotes
+		"/Simple":            "/Simple",              // no specials → unchanged
+		"/World/Enemy[1]":    "/World/Enemy[1]",      // [] not a PS boundary → unquoted
+		"/Directional Light": "'/Directional Light'", // space → single-quoted
+		"/A B/C D/":          "'/A B/C D/'",          // trailing slash kept inside quotes
+		"/It's Here":         "'/It''s Here'",        // embedded ' doubled
+		"/Cost$5 Item":       "'/Cost$5 Item'",       // $ literal inside single quotes
 	}
 	for _, shell := range []string{"powershell", "pwsh"} {
 		for in, want := range cases {

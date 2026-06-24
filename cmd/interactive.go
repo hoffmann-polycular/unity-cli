@@ -708,7 +708,7 @@ func (replCompleter) Do(line []rune, pos int) ([][]rune, int) {
 // renderCompletionSuffix escapes/quotes a completion suffix so the text
 // readline appends re-parses (via the REPL tokenizer) back to the intended
 // token. openQuote is 0 (the token is unquoted → backslash-escape shell
-// metacharacters), '"' or '\'' (the token sits inside that quote → the suffix
+// metacharacters), '"' or '\” (the token sits inside that quote → the suffix
 // is literal apart from that quote's own escapes). When the suffix is the sole
 // candidate and the token is quoted, a leaf gets its closing quote appended; a
 // container (trailing "/") is left open so the next Tab can descend into it.

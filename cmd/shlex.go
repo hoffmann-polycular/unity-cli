@@ -81,7 +81,7 @@ const pipeSentinel = "\x00|"
 // shlexForCompletion tokenizes a line for tab-completion. Unlike shlex it
 // never errors: an unterminated quote or a trailing backslash on the final
 // token is tolerated. The open quote (if any) is reported via openQuote
-// ('"' or '\'', else 0) so the completer can complete *inside* the quote and
+// ('"' or '\”, else 0) so the completer can complete *inside* the quote and
 // close it. atWordStart is true when the cursor sits at the start of a fresh
 // word — the input is empty or ends in unquoted, unescaped whitespace — i.e.
 // the token being completed is empty. `|` is treated as a literal; the
