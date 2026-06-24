@@ -341,12 +341,21 @@ namespace UnityCliConnector.Tools
 
 			var path = scene.path;
 			var wasActive = SceneManager.GetActiveScene() == scene;
-			// If this is the only loaded scene, reopen as Single (Additive would
-			// leave nothing during the close→open gap). Otherwise Additive so the
-			// rest of the loaded set is preserved.
-			var mode = SceneManager.sceneCount > 1 ? OpenSceneMode.Additive : OpenSceneMode.Single;
-			EditorSceneManager.CloseScene(scene, removeScene: true);
-			var reopened = EditorSceneManager.OpenScene(path, mode);
+			Scene reopened;
+			if (SceneManager.sceneCount > 1)
+			{
+				// Part of a multi-scene set: close just this one and reopen it
+				// additively so the rest of the loaded scenes are preserved.
+				EditorSceneManager.CloseScene(scene, removeScene: true);
+				reopened = EditorSceneManager.OpenScene(path, OpenSceneMode.Additive);
+			}
+			else
+			{
+				// Only loaded scene: opening it in Single mode replaces and
+				// reloads from disk in one step. Closing it first would unload the
+				// last scene (unsupported — Unity logs a warning), so don't.
+				reopened = EditorSceneManager.OpenScene(path, OpenSceneMode.Single);
+			}
 			if (wasActive) EditorSceneManager.SetActiveScene(reopened);
 
 			return BuildSceneResult(reopened, $"Reloaded {reopened.path}", format);
