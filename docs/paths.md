@@ -317,6 +317,10 @@ Quoting is only needed for the underlying string, never for the path syntax itse
 | Object name contains a space | argv splitting | Quote: `'./Main Camera'` |
 | String value contains `*` | Glob expansion | Quote: `set :TextMesh.text 'A*'` |
 
+### Trailing slashes
+
+A single trailing slash on a hierarchy path is ignored — `/World/Player/` resolves the same as `/World/Player`. This mirrors the `cd dir/` shell convention and matches what tab-completion inserts when it descends into a container (it appends `/` so the next Tab lists children). A leading or interior empty segment is still an error (`//World`, `/World//Player`).
+
 ### No inline globs
 
 Globs are filter operations, not address operations. They live on `find` flags (`--name`, `--name-prefix`, `--name-suffix`, `--name-contains`, `--regex`). Path positionals are always literal.
