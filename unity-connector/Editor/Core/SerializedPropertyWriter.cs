@@ -151,11 +151,120 @@ namespace UnityCliConnector
 
 				case SerializedPropertyType.Generic:
 				case SerializedPropertyType.ManagedReference:
+					// Lists and arrays surface here as Generic with isArray.
+					// Everything needed to write elements already exists, so
+					// assign the whole list in one shot (element-type-aware).
+					if (prop.isArray)
+						return WriteArray(prop, value);
 					return Result<bool>.Error(
-						$"Cannot set composite property '{prop.name}' directly. Set a leaf field instead (e.g. '.field.x').");
+						$"Cannot set composite property '{prop.name}' directly. Set a leaf field "
+						+ "(e.g. '.field.x'), or for a list set the whole thing ('.field \"[1,2,3]\"') "
+						+ "or grow-then-assign ('.field.Array.size' then '.field[i]').");
 
 				default:
 					return Result<bool>.Error($"Unsupported property type: {prop.propertyType}.");
+			}
+		}
+
+		// ---- array / list writer ----
+
+		// Assigns a whole array/List<T> in one call. The value may arrive as a
+		// real JSON array (--params), a bracketed literal ("[1,2,3]"), or a
+		// delimited string. Each element is written by recursing into Write, so
+		// scalar, enum, and object-reference element types all work — object-ref
+		// elements even get correct per-element type coercion, since
+		// ResolveObjectReferenceFieldType already understands `Array.data[idx]`
+		// property paths.
+		private static Result<bool> WriteArray(SerializedProperty prop, JToken value)
+		{
+			if (!TryAsTokenArray(prop, value, out var tokens))
+				return Result<bool>.Error(
+					$"Cannot assign to list '{prop.name}': expected a JSON array (e.g. [1,2,3]), "
+					+ "a comma/space-separated list of scalars, or newline-separated items.");
+
+			prop.arraySize = tokens.Count;
+			for (var i = 0; i < tokens.Count; i++)
+			{
+				var elem = prop.GetArrayElementAtIndex(i);
+				var r = Write(elem, tokens[i]);
+				if (!r.IsSuccess)
+					return Result<bool>.Error($"list element [{i}]: {r.ErrorMessage}");
+			}
+			return Ok();
+		}
+
+		// Normalizes a value into a flat list of element tokens.
+		//
+		// Splitting precedence (Option A — element-type-aware):
+		//   1. a real JSON array is used as-is;
+		//   2. a bracketed "[...]" string is parsed as JSON;
+		//   3. otherwise the string is split on delimiters — newline is ALWAYS a
+		//      separator (one item per line, so `find | set list` works), while
+		//      comma/space are separators only for scalar element types. Object-
+		//      reference and string elements legitimately contain spaces, so they
+		//      split on newline (or JSON) only.
+		private static bool TryAsTokenArray(SerializedProperty prop, JToken value, out System.Collections.Generic.List<JToken> tokens)
+		{
+			tokens = null;
+
+			if (value is JArray arr)
+			{
+				tokens = new System.Collections.Generic.List<JToken>(arr);
+				return true;
+			}
+
+			var s = AsString(value);
+			if (s == null) return false;
+			s = s.Trim();
+
+			// Empty value clears the list.
+			if (s.Length == 0)
+			{
+				tokens = new System.Collections.Generic.List<JToken>();
+				return true;
+			}
+
+			if (s[0] == '[')
+			{
+				try
+				{
+					tokens = new System.Collections.Generic.List<JToken>(JArray.Parse(s));
+					return true;
+				}
+				catch
+				{
+					// Not valid JSON after all — fall through to delimiter split.
+				}
+			}
+
+			var seps = IsScalarSplittable(prop.arrayElementType)
+				? new[] { ',', ' ', '\t', '\n', '\r' }
+				: new[] { '\n', '\r' };
+			var parts = s.Split(seps, System.StringSplitOptions.RemoveEmptyEntries);
+			tokens = new System.Collections.Generic.List<JToken>(parts.Length);
+			foreach (var part in parts)
+				tokens.Add(new JValue(part.Trim()));
+			return true;
+		}
+
+		// True for element types where a bare comma/space-separated string is
+		// unambiguous (numeric primitives). Object refs, strings, and composite
+		// element types must use newline-separated or JSON input instead.
+		private static bool IsScalarSplittable(string arrayElementType)
+		{
+			switch (arrayElementType)
+			{
+				case "int":
+				case "long":
+				case "short":
+				case "byte":
+				case "char":
+				case "float":
+				case "double":
+				case "bool":
+					return true;
+				default:
+					return false;
 			}
 		}
 

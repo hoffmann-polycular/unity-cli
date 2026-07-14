@@ -1085,11 +1085,15 @@ Value (type-aware, permissive):
   Object refs   "Assets/Prefabs/Enemy.prefab"
                 "#14352"
                 "/World/Other/Target"   (Hierarchy path)
+  Lists/arrays  "[1,2,3]"   "1,2,3"   "1 2 3"   (scalars)
+                '["/World/A","/World/B"]'        (object refs — JSON)
+                one-per-line via stdin (find ... | set ...:Comp.list)
   Null          null   none   ""
 
 JSON-shaped values go through --params:
   unity-cli set :Transform.position \
     --params '{"value":{"x":1,"y":2,"z":3}}'
+  unity-cli set :MyScript.ids --params '{"value":[1,2,3]}'
 
 Examples:
   unity-cli set :Transform.position.x 1.5
@@ -1101,10 +1105,16 @@ Examples:
   unity-cli set /World/Enemy:AIScript.target null
   unity-cli set ProjectSettings/Physics.gravity "0 -20 0"
   unity-cli get /World/A:Transform.position | unity-cli set /World/B:Transform.position
+  unity-cli set /World/Safe:KnobSequence.correctSequence "[2,0,3,1]"
+  unity-cli find --component Knob --plain | unity-cli set /World/Safe:KnobSequence.knobs
 
 Notes:
-  - Composite properties (Generic / ManagedReference) must be set via
-    their leaf fields, not as a whole.
+  - Lists/arrays can be set whole: a JSON array, or (for scalar element
+    types) a comma/space-separated string. Object-reference and string
+    lists must use a JSON array or newline-separated stdin, since their
+    values can contain spaces.
+  - Other composite properties (Generic structs / ManagedReference) must
+    still be set via their leaf fields, not as a whole.
   - The target object is marked dirty automatically.
 `)
 	case "inspect":

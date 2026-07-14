@@ -48,7 +48,7 @@ unity-cli find Assets/Sprites/ --type Texture2D --plain | \
 - `select` — bridge between the terminal and the Editor's Hierarchy/Inspector
 
 **Scene mutation**
-- `set` — write a property value; broadcasts to a fan-out from stdin or selection
+- `set` — write a property value (scalars, vectors, colors, refs, whole lists/arrays); broadcasts to a fan-out from stdin or selection
 - `create` — create GameObjects (empty, primitives, or prefab instances)
 - `rm` — delete objects; accepts paths on stdin for batch removal
 - `cp` / `mv` — copy or move objects in the hierarchy

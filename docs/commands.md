@@ -265,9 +265,33 @@ unity-cli set <path> [<value>]
 
 **Options:**
 - `<path>` — a property path (e.g. `/World/Player:Rigidbody.mass`).
-- `<value>` — scalar literal, space-separated vector, path (for references), or `null`/`none` to clear. Read from stdin if omitted.
+- `<value>` — scalar literal, space-separated vector, path (for references), whole list/array (see below), or `null`/`none` to clear. Read from stdin if omitted.
 - Creates a prefab override implicitly when writing to a prefab instance — same as typing in the Inspector.
 - For importer properties (`Assets/Foo.png:Importer.x`), writes the `.meta` file and Unity re-imports automatically.
+
+**Lists and arrays (whole-value set):**
+
+A `List<T>` / `T[]` property can be assigned in one call — no need to grow `.Array.size` and set each `[i]` by hand:
+
+- **Scalar element types** (int, float, bool, …): a JSON array `"[1,2,3]"`, or a comma/space-separated string `"1,2,3"` / `"1 2 3"`.
+- **Object-reference / string element types**: a JSON array of paths `'["/World/A","/World/B"]'`, or newline-separated items via stdin. These never split on spaces, so paths containing spaces are safe.
+- An empty value (`"[]"` or `""`) clears the list.
+
+```bash
+# scalar list, three equivalent forms
+unity-cli set /World/Safe:KnobSequence.correctSequence "[2,0,3,1]"
+unity-cli set /World/Safe:KnobSequence.correctSequence "2,0,3,1"
+unity-cli set /World/Safe:KnobSequence.correctSequence --params '{"value":[2,0,3,1]}'
+
+# object-reference list: pipe matches straight in (one path per line)
+unity-cli find --component Knob --plain | \
+    unity-cli set /World/Safe:KnobSequence.knobs
+
+# round-trips through get
+unity-cli get /A:Script.ids | unity-cli set /B:Script.ids
+```
+
+Lists of composite structs (`List<MySerializable>`) are not yet settable whole — assign their leaf fields, e.g. `.drops[0].chance`.
 
 **Stdin (multi-path broadcast):**
 

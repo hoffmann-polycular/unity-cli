@@ -39,8 +39,10 @@ namespace UnityCliConnector.Tools
 	/// group, and per-target failures are reported but do not stop other
 	/// writes. Value input is permissive: plain strings ("1 2 3", "#ff0000",
 	/// "MyEnum"), JSON numbers/bools/objects (<c>--params '{"value":{"x":1,"y":2}}'</c>),
-	/// component/asset references by path or instance ID, or <c>null</c>/<c>none</c>
-	/// to clear an object reference.
+	/// component/asset references by path or instance ID, whole lists/arrays
+	/// (<c>"[1,2,3]"</c>, a comma/space-separated scalar list, a JSON array of
+	/// refs, or newline-separated stdin from <c>find ... | set ...:Comp.list</c>),
+	/// or <c>null</c>/<c>none</c> to clear an object reference.
 	///
 	/// Also supports <c>ProjectSettings/&lt;Group&gt;.&lt;property&gt;</c>.
 	/// </summary>
@@ -55,7 +57,8 @@ namespace UnityCliConnector.Tools
 
 			[ToolParameter("Value to assign. Scalars, \"x y z\" / \"x,y,z\" vectors, " +
 				"\"#rrggbb\" colors, enum names, object refs (\"Assets/...\" / \"#id\" / scene path), " +
-				"or null/none to clear.", Required = true)]
+				"lists/arrays (\"[1,2,3]\", a comma/space list of scalars, JSON array of refs, or " +
+				"newline-separated stdin), or null/none to clear.", Required = true)]
 			public string Value { get; set; }
 		}
 
