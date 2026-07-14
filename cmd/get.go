@@ -40,24 +40,19 @@ import (
 // piped path. Otherwise piped lines are used as-is.
 func getCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	// Translate --json to --format json so the wire param matches what the
-	// C# tool expects. Also translate --with-path / -P to the snake-case
-	// param the C# tool reads.
-	rest := make([]string, 0, len(args))
-	for _, a := range args {
-		switch a {
-		case "--json":
-			rest = append(rest, "--format", "json")
-		case "-P":
-			rest = append(rest, "--with-path")
-		default:
-			rest = append(rest, a)
+	// C# tool expects. Also translate the -P short flag to its --with-path
+	// long form.
+	rest := translateJSONFlag(args)
+	for i, a := range rest {
+		if a == "-P" {
+			rest[i] = "--with-path"
 		}
 	}
 
 	// Pull positional + flags. Use stdin paths to drive fan-out when piped.
 	stdinPaths := readStdinPaths()
 	if len(stdinPaths) > 0 {
-		positional, flagArgs := splitPositionalFromFlags(rest)
+		positional, flagArgs := splitFlagsAndPositionals(rest)
 		suffix := ""
 		if len(positional) > 0 && strings.HasPrefix(positional[0], ":") {
 			suffix = positional[0]
@@ -84,41 +79,4 @@ func getCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 		return nil, err
 	}
 	return send("get", params)
-}
-
-// translateJSONFlag rewrites a bare `--json` to `--format json` so it
-// arrives at buildParams as a value flag (which buildParams understands).
-// Used by command wrappers that otherwise pass args straight to buildParams.
-func translateJSONFlag(args []string) []string {
-	out := make([]string, 0, len(args)+1)
-	for _, a := range args {
-		if a == "--json" {
-			out = append(out, "--format", "json")
-			continue
-		}
-		out = append(out, a)
-	}
-	return out
-}
-
-// splitPositionalFromFlags peels positional arguments off the front of an
-// arg list. A positional is any arg that doesn't start with "-" and isn't
-// the value of a preceding flag. Returns (positionals, remainingFlags).
-func splitPositionalFromFlags(args []string) ([]string, []string) {
-	positionals := []string{}
-	flags := []string{}
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if strings.HasPrefix(a, "--") || strings.HasPrefix(a, "-") {
-			flags = append(flags, a)
-			// Best-effort: if next token isn't a flag, treat it as the flag's value.
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-				flags = append(flags, args[i+1])
-				i++
-			}
-			continue
-		}
-		positionals = append(positionals, a)
-	}
-	return positionals, flags
 }

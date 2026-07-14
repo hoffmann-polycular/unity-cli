@@ -23,10 +23,6 @@
 package cmd
 
 import (
-	"io"
-	"os"
-	"strings"
-
 	"github.com/hoffmann-polycular/unity-cli/internal/client"
 )
 
@@ -60,27 +56,4 @@ func rmCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	}
 
 	return send("rm", params)
-}
-
-func readStdinPaths() []string {
-	info, err := os.Stdin.Stat()
-	if err != nil {
-		return nil
-	}
-	if info.Mode()&os.ModeCharDevice != 0 {
-		return nil
-	}
-	data, err := io.ReadAll(os.Stdin)
-	if err != nil || len(data) == 0 {
-		return nil
-	}
-	text := strings.TrimRight(string(data), "\r\n")
-	var paths []string
-	for _, line := range strings.Split(text, "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			paths = append(paths, line)
-		}
-	}
-	return paths
 }

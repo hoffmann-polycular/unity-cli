@@ -61,7 +61,7 @@ func setCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	}
 	args = filtered
 
-	positional, flagArgs := splitPositionalFromFlags(args)
+	positional, flagArgs := splitFlagsAndPositionals(args)
 
 	// Multi-path broadcast: ":<suffix> <value>" + stdin paths.
 	if len(positional) >= 2 && strings.HasPrefix(positional[0], ":") {

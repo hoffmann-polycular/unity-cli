@@ -54,28 +54,11 @@ func prefabCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	action := args[0]
 	rest := args[1:]
 
-	// Split positionals from flag passthroughs (--json, --format, etc.).
-	var positionals []string
-	var passthrough []string
-	for i := 0; i < len(rest); i++ {
-		a := rest[i]
-		if len(a) > 1 && a[0] == '-' {
-			passthrough = append(passthrough, a)
-			continue
-		}
-		positionals = append(positionals, a)
-	}
-
-	// Normalize --json → --format json so the C# side sees a consistent param.
-	for i, a := range passthrough {
-		if a == "--json" {
-			passthrough = append(
-				append([]string{}, passthrough[:i]...),
-				append([]string{"--format", "json"}, passthrough[i+1:]...)...,
-			)
-			break
-		}
-	}
+	// Split positionals from flag passthroughs (--json, --format, etc.),
+	// then normalize --json → --format json so the C# side sees a consistent
+	// param.
+	positionals, passthrough := splitFlagsAndPositionals(rest)
+	passthrough = translateJSONFlag(passthrough)
 
 	// For the actions that take a single GameObject target, stdin paths
 	// drive multi-path mode. If a positional starts with ":" it's a suffix

@@ -472,22 +472,6 @@ func collectPositionals(args []string) []string {
 	return out
 }
 
-var knownBooleanFlags = map[string]bool{
-	"--recursive": true, "-R": true, "--components": true,
-	"--json": true, "--plain": true, "--null-delimited": true,
-	"--has-overrides": true, "--is-prefab-instance": true, "--exact-component": true, "--active": true, "--inactive": true,
-	"--overrides-only": true, "--source": true, "--all": true,
-	"--get": true, "--clear": true, "--wait": true, "--compile": true,
-	"--check": true, "--completely": true, "--discard": true,
-	"--auto-suffix": true, "--help": true,
-	"--first": true, "--last": true,
-	"--upgrade": true, "--uninstall": true,
-}
-
-func isKnownBooleanFlag(flag string) bool {
-	return knownBooleanFlags[flag]
-}
-
 // --- helpers ---
 
 func prefixFilter(candidates []string, prefix string) []string {

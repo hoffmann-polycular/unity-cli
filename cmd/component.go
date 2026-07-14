@@ -55,26 +55,10 @@ func componentCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	rest := args[1:]
 
 	// Pull positionals out of `rest` while letting any `--flag value` pairs
-	// (e.g. `--json`) flow through to buildParams unchanged.
-	var positionals []string
-	var passthrough []string
-	for i := 0; i < len(rest); i++ {
-		a := rest[i]
-		if len(a) > 1 && a[0] == '-' {
-			passthrough = append(passthrough, a)
-			continue
-		}
-		positionals = append(positionals, a)
-	}
-
-	// Normalize --json → --format json so the C# tool sees the same param
-	// shape it does for every other tool.
-	for i, a := range passthrough {
-		if a == "--json" {
-			passthrough = append(append([]string{}, passthrough[:i]...), append([]string{"--format", "json"}, passthrough[i+1:]...)...)
-			break
-		}
-	}
+	// (e.g. `--json`) flow through to buildParams. Normalize --json →
+	// --format json so the C# tool sees the same param shape as every other.
+	positionals, passthrough := splitFlagsAndPositionals(rest)
+	passthrough = translateJSONFlag(passthrough)
 
 	stdinPaths := readStdinPaths()
 	hasStdin := len(stdinPaths) > 0

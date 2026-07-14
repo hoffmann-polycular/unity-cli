@@ -39,19 +39,11 @@ import (
 // starts with ":" (a component/property suffix), it's appended to every
 // piped path. Otherwise piped lines are used as-is.
 func inspectCmd(args []string, send sendFn) (*client.CommandResponse, error) {
-	rest := make([]string, 0, len(args))
-	for _, a := range args {
-		switch a {
-		case "--json":
-			rest = append(rest, "--format", "json")
-		default:
-			rest = append(rest, a)
-		}
-	}
+	rest := translateJSONFlag(args)
 
 	stdinPaths := readStdinPaths()
 	if len(stdinPaths) > 0 {
-		positional, flagArgs := splitPositionalFromFlags(rest)
+		positional, flagArgs := splitFlagsAndPositionals(rest)
 		suffix := ""
 		if len(positional) > 0 && strings.HasPrefix(positional[0], ":") {
 			suffix = positional[0]

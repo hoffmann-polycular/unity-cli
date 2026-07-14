@@ -24,7 +24,6 @@ package cmd
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/hoffmann-polycular/unity-cli/internal/client"
 )
@@ -55,20 +54,7 @@ func sceneCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	// values. Boolean flags consume no next arg; everything else greedily
 	// pairs with the following non-flag token. Mirrors how buildParams sees
 	// flag/value pairs once we hand them off.
-	var positionals []string
-	var passthrough []string
-	for i := 0; i < len(rest); i++ {
-		a := rest[i]
-		if strings.HasPrefix(a, "--") {
-			passthrough = append(passthrough, a)
-			if !isSceneBoolFlag(a) && i+1 < len(rest) && !strings.HasPrefix(rest[i+1], "--") {
-				passthrough = append(passthrough, rest[i+1])
-				i++
-			}
-			continue
-		}
-		positionals = append(positionals, a)
-	}
+	positionals, passthrough := splitFlagsAndPositionals(rest)
 
 	// Normalise common aliases. `--as` is more natural to type than `--asset`
 	// but the connector parameter is named `asset`; `--json`/`--plain` map to
@@ -141,17 +127,6 @@ func sceneCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 			"unknown scene action: %s\nAvailable: list, open, close, save, reload, set-active, new, dirty",
 			action)
 	}
-}
-
-// isSceneBoolFlag returns true for flags that don't take a value, so the
-// parser knows not to greedily consume the next token (a positional) as a
-// flag value.
-func isSceneBoolFlag(flag string) bool {
-	switch flag {
-	case "--save", "--discard", "--json", "--plain":
-		return true
-	}
-	return false
 }
 
 func sendScene(send sendFn, action, path string, passthrough []string) (*client.CommandResponse, error) {

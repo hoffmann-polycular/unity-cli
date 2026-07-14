@@ -34,7 +34,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -306,23 +305,14 @@ func printResponse(resp *client.CommandResponse) {
 	}
 }
 
-// parseSubFlags parses --key value and --flag (boolean) pairs from subcommand args.
-// Non-flag args (no "--" prefix) are silently ignored.
+// parseSubFlags parses --key value and --flag (boolean) pairs from subcommand
+// args into a name→value map. Bare positional args are ignored. Value
+// consumption is boolean-aware via the shared splitter, so a boolean flag
+// followed by a positional (e.g. `test --allow-dirty-scenes SomeFilter`)
+// no longer swallows the positional as its value.
 func parseSubFlags(args []string) map[string]string {
-	flags := map[string]string{}
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if strings.HasPrefix(a, "--") {
-			key := a[2:]
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
-				flags[key] = args[i+1]
-				i++
-			} else {
-				flags[key] = "true"
-			}
-		}
-	}
-	return flags
+	_, flags := splitFlagsAndPositionals(args)
+	return flagsToMap(flags)
 }
 
 // buildParams parses --flag value pairs and positional args from args and merges with base params.
@@ -383,23 +373,6 @@ func buildParams(args []string, base map[string]interface{}) (map[string]interfa
 	}
 
 	return params, nil
-}
-
-// readStdinIfPiped reads stdin when piped and prepends it as the first positional arg.
-func readStdinIfPiped(args []string) []string {
-	info, err := os.Stdin.Stat()
-	if err != nil {
-		return args
-	}
-	if info.Mode()&os.ModeCharDevice != 0 {
-		return args // interactive terminal, not piped
-	}
-	data, err := io.ReadAll(os.Stdin)
-	if err != nil || len(data) == 0 {
-		return args
-	}
-	code := strings.TrimRight(string(data), "\n\r")
-	return append([]string{code}, args...)
 }
 
 // splitArgs separates global flags from subcommand args.
