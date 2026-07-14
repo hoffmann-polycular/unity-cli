@@ -36,9 +36,8 @@ func screenshotCmd(args []string, send sendFn) (*client.CommandResponse, error) 
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch a {
-		case "--output-path", "-o":
-			// User-facing kebab → wire snake.
-			normalized = append(normalized, "--output_path")
+		case "-o":
+			normalized = append(normalized, "--output-path")
 		default:
 			normalized = append(normalized, a)
 		}

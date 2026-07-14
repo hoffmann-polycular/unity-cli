@@ -44,8 +44,6 @@ func inspectCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 		switch a {
 		case "--json":
 			rest = append(rest, "--format", "json")
-		case "--overrides-only":
-			rest = append(rest, "--overrides_only")
 		default:
 			rest = append(rest, a)
 		}

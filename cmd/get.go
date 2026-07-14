@@ -47,8 +47,8 @@ func getCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 		switch a {
 		case "--json":
 			rest = append(rest, "--format", "json")
-		case "--with-path", "-P":
-			rest = append(rest, "--with_path")
+		case "-P":
+			rest = append(rest, "--with-path")
 		default:
 			rest = append(rest, a)
 		}

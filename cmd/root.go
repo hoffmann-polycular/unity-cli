@@ -337,7 +337,7 @@ func buildParams(args []string, base map[string]interface{}) (map[string]interfa
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if strings.HasPrefix(a, "--") {
-			key := a[2:]
+			key := strings.ReplaceAll(a[2:], "-", "_")
 			// Known boolean flags never consume the next arg as a value —
 			// otherwise `unity-cli ls -R /` (normalized to `--recursive /`)
 			// would absorb `/` as the recursive=true value and lose the
