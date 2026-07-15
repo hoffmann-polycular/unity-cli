@@ -200,7 +200,9 @@ unity-cli menu "File/Save Project"
 unity-cli test --mode EditMode
 unity-cli test --mode PlayMode --filter MyTests.SmokeTest
 
-unity-cli screenshot --view game -o Screenshots/frame.png
+unity-cli screenshot                       # real Game View (UI + post), timestamped PNG, prints its path
+unity-cli screenshot --view scene          # Scene View camera render
+unity-cli screenshot --view /World/MainCamera -o Screenshots/frame.png
 unity-cli profiler hierarchy --depth 3 --min 0.5
 
 unity-cli exec "return Camera.main.transform.position.ToString();"

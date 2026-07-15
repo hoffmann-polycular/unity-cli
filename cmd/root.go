@@ -454,7 +454,7 @@ Editor
   editor play|stop|pause|refresh [--wait|--compile]
   console [--lines N] [--type ...] [--stacktrace ...] [--clear]
   menu "<path>"               execute a Unity menu item
-  screenshot [--view scene|game] [--width N] [--height N] [-o file]
+  screenshot [--view game|scene|<camera-path>] [--supersize N] [-o file]
   reserialize [path...]       force YAML reserialization
   profiler hierarchy|enable|disable|status|clear
   exec "<C# code>"            arbitrary C# (return for output)
@@ -1307,22 +1307,37 @@ Note: File/Quit is blocked for safety.
 	case "screenshot":
 		fmt.Print(`Usage: unity-cli screenshot [options]
 
-Capture a screenshot of the Unity editor.
+Capture a screenshot of the Unity editor. Writes a PNG and prints its
+absolute path (ready to open or read back).
+
+--view selects what to capture:
+  game              (default) The actual Game View, exactly as displayed —
+                    includes Screen-Space-Overlay UI (Canvas) and post-
+                    processing, and renders correctly under URP/HDRP.
+  scene             The Scene View camera's render (grid/gizmos not included).
+  <camera-path>     A hierarchy path to a GameObject with a Camera — a clean
+                    off-screen render from that camera
+                    (e.g. --view /World/MainCamera).
 
 Options:
-  --view <mode>      scene (default), game
-  --width <N>        Image width in pixels (default: 1920)
-  --height <N>       Image height in pixels (default: 1080)
+  --view <mode>         game (default), scene, or a camera hierarchy path
+  --supersize <N>       Resolution multiplier for game/scene (integer >= 1,
+                        default 1). Keeps native aspect — no distortion.
+  --width <N>           Render width in pixels  (camera-path view only; default 1920)
+  --height <N>          Render height in pixels (camera-path view only; default 1080)
   --output-path <path>  Output path, absolute or relative to project root
   -o <path>             Short form of --output-path
-                        (default: Screenshots/screenshot.png)
+
+Output path:
+  Omitting -o writes a timestamped file that never overwrites a previous
+  capture: Screenshots/<view>_<YYYY-MM-DD_HH-MM-SS>.png
 
 Examples:
-  unity-cli screenshot
-  unity-cli screenshot --view game
-  unity-cli screenshot --view scene --width 3840 --height 2160
-  unity-cli screenshot --output-path captures/my_scene.png
-  unity-cli screenshot -o captures/my_scene.png
+  unity-cli screenshot                                   # the live Game View
+  unity-cli screenshot --supersize 2                     # 2x native resolution
+  unity-cli screenshot --view scene
+  unity-cli screenshot --view /World/MainCamera --width 1280 --height 720
+  unity-cli screenshot -o captures/my_shot.png
 `)
 	case "reimport":
 		fmt.Print(`Usage: unity-cli reimport <path>...

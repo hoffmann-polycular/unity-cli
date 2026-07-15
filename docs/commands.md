@@ -1024,21 +1024,28 @@ unity-cli menu "Window/General/Console"
 
 ## screenshot
 
-Capture a screenshot of the scene or game view.
+Capture a screenshot and print the absolute path of the written PNG.
 
 ```
-unity-cli screenshot [--view <scene|game>] [--width <N>] [--height <N>] [--output-path <path>]
+unity-cli screenshot [--view <game|scene|camera-path>] [--supersize <N>] [--width <N>] [--height <N>] [--output-path <path>]
 ```
+
+**`--view` selects what to capture:**
+- `game` *(default)* — the **actual Game View**, exactly as displayed: includes Screen-Space-Overlay UI (Canvas) and post-processing, and renders correctly under URP/HDRP. Captured via `ScreenCapture` at end of frame, so it works in both edit and play mode.
+- `scene` — the Scene View camera's render (grid/gizmos are **not** included).
+- `<camera-path>` — a hierarchy path to a GameObject with a `Camera`; produces a clean off-screen render from that camera (e.g. `--view /World/MainCamera`).
 
 **Options:**
-- `--view` — `scene` (default) or `game`.
-- `--width` / `--height` — pixel dimensions (default 1920×1080).
-- `--output-path`, `-o` — absolute path or relative to project root (default: `Screenshots/screenshot.png`).
+- `--supersize <N>` — resolution multiplier for `game`/`scene` (integer ≥ 1, default 1). Keeps native aspect — no distortion.
+- `--width` / `--height` — render dimensions for the **camera-path** view only (default 1920×1080). Ignored for `game`/`scene`.
+- `--output-path`, `-o` — absolute path or relative to project root. When omitted, a timestamped file is written that never overwrites a previous capture: `Screenshots/<view>_<YYYY-MM-DD_HH-MM-SS>.png`.
 
 **Examples:**
 ```bash
-unity-cli screenshot
-unity-cli screenshot --view game --width 3840 --height 2160
+unity-cli screenshot                                   # the live Game View
+unity-cli screenshot --supersize 2                     # 2× native resolution
+unity-cli screenshot --view scene
+unity-cli screenshot --view /World/MainCamera --width 1280 --height 720
 unity-cli screenshot -o /tmp/capture.png
 ```
 

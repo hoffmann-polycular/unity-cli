@@ -286,7 +286,7 @@ var commandFlags = map[string][]string{
 	"mv":         {},
 	"reorder":    {"--index", "--first", "--last", "--up", "--down", "--before", "--after"},
 	"console":    {"--lines", "--type", "--stacktrace", "--clear"},
-	"screenshot": {"--view", "--width", "--height", "--output-path", "-o"},
+	"screenshot": {"--view", "--supersize", "--width", "--height", "--output-path", "-o"},
 	"reimport":   {"--recursive"},
 	"guid":       {"--json"},
 	"path":       {"--json"},
