@@ -213,7 +213,7 @@ func computeCandidates(idx int, words []string, current string) []string {
 // --- static completion tables ---
 
 var topLevelCommands = []string{
-	"editor", "test", "exec", "ls", "find", "inspect", "get", "set",
+	"editor", "test", "exec", "ls", "find", "inspect", "get", "set", "invoke",
 	"component", "select", "create", "rm", "cp", "mv", "reorder",
 	"prefab", "scene", "console", "menu", "screenshot", "reserialize", "reimport",
 	"guid", "path",
@@ -228,7 +228,7 @@ var subcommands = map[string][]string{
 	"component":  {"list", "add", "remove"},
 	"profiler":   {"hierarchy", "enable", "disable", "status", "clear"},
 	"completion": {"bash", "zsh", "fish", "powershell"},
-	"help":       {"editor", "ls", "find", "inspect", "get", "set", "component", "select", "create", "rm", "cp", "mv", "reorder", "prefab", "scene", "console", "menu", "exec", "screenshot", "reserialize", "profiler", "test", "status", "list", "update", "init", "interactive", "custom-tools", "setup"},
+	"help":       {"editor", "ls", "find", "inspect", "get", "set", "invoke", "component", "select", "create", "rm", "cp", "mv", "reorder", "prefab", "scene", "console", "menu", "exec", "screenshot", "reserialize", "profiler", "test", "status", "list", "update", "init", "interactive", "custom-tools", "setup"},
 }
 
 var primitiveTypes = []string{
@@ -277,6 +277,7 @@ var commandFlags = map[string][]string{
 	"inspect":    {"--overrides-only", "--json", "--plain"},
 	"get":        {"--source", "--json"},
 	"set":        {"--all", "--value", "--params"},
+	"invoke":     {"--json", "--params"},
 	"select":     {"--get", "--add", "--clear", "--json"},
 	"create":     {"--prefab"},
 	"rm":         {},
@@ -377,6 +378,11 @@ func positionalCandidates(cmd string, idx int, words []string, current string) [
 		return nil
 	case "set":
 		// First positional is path; second is value (no completion).
+		if posIdx == 0 {
+			return queryUnity("scene", current)
+		}
+	case "invoke":
+		// First positional is path:Comp.Method; the rest are method args.
 		if posIdx == 0 {
 			return queryUnity("scene", current)
 		}

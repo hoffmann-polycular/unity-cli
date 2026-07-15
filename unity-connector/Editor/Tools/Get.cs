@@ -510,7 +510,7 @@ namespace UnityCliConnector.Tools
 		// `set` accepts verbatim. Vectors/colors → space-separated, references
 		// → canonical paths, null → "null".
 
-		private static string FormatPipeFriendly(object value)
+		internal static string FormatPipeFriendly(object value)
 		{
 			switch (value)
 			{

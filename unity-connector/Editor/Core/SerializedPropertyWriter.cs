@@ -40,9 +40,11 @@ namespace UnityCliConnector
 	///   - quat:    3 components → Euler degrees, 4 components → raw <c>(x,y,z,w)</c>
 	///   - object:  <c>"#&lt;id&gt;"</c>, <c>"Assets/..."</c>, scene path, or <c>null</c>
 	///
-	/// Generic structs and managed references are rejected — write to a leaf
-	/// child instead (<c>.position.x</c>) so the user sees obvious failure
-	/// modes rather than silently-clobbered nested data.
+	/// Generic structs and managed references accept a JSON object and write
+	/// each field into the matching child property (composing recursively, so a
+	/// whole <c>List&lt;SomeSerializable&gt;</c> assigns element-by-element). A
+	/// scalar handed to a composite is still rejected so typos surface loudly
+	/// rather than silently clobbering nested data.
 	/// </summary>
 	public static class SerializedPropertyWriter
 	{
@@ -156,10 +158,9 @@ namespace UnityCliConnector
 					// assign the whole list in one shot (element-type-aware).
 					if (prop.isArray)
 						return WriteArray(prop, value);
-					return Result<bool>.Error(
-						$"Cannot set composite property '{prop.name}' directly. Set a leaf field "
-						+ "(e.g. '.field.x'), or for a list set the whole thing ('.field \"[1,2,3]\"') "
-						+ "or grow-then-assign ('.field.Array.size' then '.field[i]').");
+					// A serializable struct/class: accept a JSON object and
+					// write each field into the matching child property.
+					return WriteComposite(prop, value);
 
 				default:
 					return Result<bool>.Error($"Unsupported property type: {prop.propertyType}.");
@@ -189,6 +190,43 @@ namespace UnityCliConnector
 				var r = Write(elem, tokens[i]);
 				if (!r.IsSuccess)
 					return Result<bool>.Error($"list element [{i}]: {r.ErrorMessage}");
+			}
+			return Ok();
+		}
+
+		// Assigns a serializable struct/class in one call from a JSON object:
+		// each key is resolved to a child field (via the same user-name folding
+		// as the rest of the grammar) and written by recursing into Write. This
+		// composes: nested structs take nested objects, nested lists take arrays,
+		// and object-reference fields take paths/ids — so a whole
+		// List<SomeSerializable> assigns element-by-element through WriteArray.
+		private static Result<bool> WriteComposite(SerializedProperty prop, JToken value)
+		{
+			var obj = value as JObject;
+			if (obj == null)
+			{
+				// Also accept a stringified JSON object (the common CLI form,
+				// where the value arrives as one quoted argument).
+				var s = AsString(value);
+				if (s != null && s.TrimStart().StartsWith("{", System.StringComparison.Ordinal))
+				{
+					try { obj = JObject.Parse(s); }
+					catch { obj = null; }
+				}
+			}
+			if (obj == null)
+				return Result<bool>.Error(
+					$"Cannot set composite property '{prop.name}' from a scalar. Pass a JSON object "
+					+ "(e.g. '{\"field\":value,…}'), or set a leaf field directly ('.field.x').");
+
+			foreach (var kv in obj)
+			{
+				var child = PathResolver.FindRelativeByUserName(prop, kv.Key);
+				if (child == null)
+					return Result<bool>.Error($"No field '{kv.Key}' on composite '{prop.name}'.");
+				var r = Write(child, kv.Value);
+				if (!r.IsSuccess)
+					return Result<bool>.Error($"field '{kv.Key}': {r.ErrorMessage}");
 			}
 			return Ok();
 		}

@@ -238,6 +238,8 @@ func dispatchOnline(category string, subArgs []string, send sendFn, resolve inst
 		return getCmd(subArgs, send)
 	case "set":
 		return setCmd(subArgs, send)
+	case "invoke":
+		return invokeCmd(subArgs, send)
 	case "component":
 		return componentCmd(subArgs, send)
 	case "select":
@@ -423,6 +425,7 @@ Scene navigation
 Properties
   get <path>:Comp.prop        read one property value
   set <path>:Comp.prop <v>    write one property value (registers Undo)
+  invoke <path>:Comp.M [a...]  call a method / Odin [Button] (any access)
   find ... | get :Comp.prop   broadcast read across stdin paths
   find ... | set :Comp.prop v broadcast write (one Undo group)
 
@@ -478,7 +481,7 @@ Global flags
 
 Notes
   - Multi-target paths fan out across the current selection. Stdin paths
-    work for get, set, inspect, rm, select, component, prefab, reimport.
+    work for get, set, invoke, inspect, rm, select, component, prefab, reimport.
   - Default output: ls/find/get/cp/mv/create/component emit canonical
     paths (one per line); use --json for structured records.
   - Unity must be running with the Connector package installed.
@@ -1119,8 +1122,11 @@ Notes:
     types) a comma/space-separated string. Object-reference and string
     lists must use a JSON array or newline-separated stdin, since their
     values can contain spaces.
-  - Other composite properties (Generic structs / ManagedReference) must
-    still be set via their leaf fields, not as a whole.
+  - Serializable structs/classes can be set from a JSON object; each key
+    writes the matching field, and it composes — so a whole
+    List<SomeSerializable> assigns in one call from an array of objects
+    (e.g. :Comp.dials '[{"Visual":"/A","Solution":3},…]'). Only the keys you
+    pass are written, so a partial object updates just those fields.
   - A name with no serialized field (e.g. Transform.position/eulerAngles, or
     a custom C# property) is written via its C# setter; localPosition etc.
     remain the serialized fields. Sub-fields (position.x) read-modify-write.
@@ -1211,6 +1217,48 @@ Examples:
   unity-cli console --stacktrace user
   unity-cli console --type error --stacktrace full
   unity-cli console --clear
+`)
+	case "invoke":
+		fmt.Print(`Usage: unity-cli invoke <path>:Comp.Method [args...]
+
+Call a method on a component by reflection — the CLI-first way to press an
+Odin [Button], run a Solve(), or exercise any method while testing, without
+dropping to exec. The method is resolved by name at ANY access level
+(public, private, static — a private [Button] is just a private method).
+
+Arguments are coerced to the parameter types the same way 'set' coerces
+values (scalars, "1 2 3" vectors, "#ff8800" colors, enum names, and object
+references by path/#id). Overloads resolve by argument count, then by which
+signature the given args coerce to; a genuinely ambiguous call lists the
+candidates. Optional parameters fall back to their defaults.
+
+The return value (if any) prints like 'get' output; void prints "-> void".
+Non-play-mode calls register a best-effort Undo of the target component and
+mark it dirty (side effects on other objects are not captured).
+
+Path (v3):
+  Same grammar as 'get'/'set', but the trailing segment is a method name.
+  /World/Safe:KnobCombination.Solve       Absolute path
+  :InvokeTest.Add                          Selection-anchored (fan-out)
+
+Options:
+  --json                      Wrap result with path/component/method/value
+
+Examples:
+  unity-cli invoke /World/Safe:KnobCombination.Solve
+  unity-cli invoke :Enemy.SetHealth 100
+  unity-cli invoke /World/Player:Mover.MoveTo "1 2 3"
+  unity-cli invoke :Spawner.Spawn Fast          # enum arg by name
+  find --component Enemy --plain | unity-cli invoke :Enemy.Reset
+
+Stdin (fan-out):
+  Piped lines are target GameObjects; the positional supplies only the
+  ':Component.Method' (+ any method args). One Undo group for the batch.
+
+Notes:
+  - Methods distinguished only by argument type may be ambiguous, since CLI
+    args are untyped strings (e.g. "7" fits both int and string overloads).
+  - params-array methods are not specially handled.
 `)
 	case "exec":
 		fmt.Print(`Usage: unity-cli exec "<code>" [options]
