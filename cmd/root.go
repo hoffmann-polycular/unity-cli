@@ -1019,8 +1019,11 @@ Notes:
 	case "get":
 		fmt.Print(`Usage: unity-cli get <path> [options]
 
-Read a single serialized-property value. The path must include both a
-component and a property, optionally drilling into sub-fields.
+Read a single property value. The path must include both a component and a
+property, optionally drilling into sub-fields. Names that map to a serialized
+field are read through SerializedObject; a name with no serialized field falls
+back to the matching public C# member (e.g. Transform.position is world-space,
+and forward / childCount / a custom MonoBehaviour property are all readable).
 
 v3 fan-out: a selection-anchored path with multi-selection emits one line
 per target, prefixed with the canonical path. Single-target retains the
@@ -1060,8 +1063,11 @@ Examples:
        unity-cli set <path> --value <value>
        echo <value> | unity-cli set <path>
 
-Write a single serialized-property value. Goes through SerializedObject,
-so prefab overrides register and Undo works exactly like an Inspector edit.
+Write a single property value. Serialized fields go through SerializedObject,
+so prefab overrides register and Undo works exactly like an Inspector edit. A
+name with no serialized field falls back to the matching public C# member and
+is written through its setter (e.g. Transform.position sets world-space, doing
+the parent-inverse math); read-only members are rejected.
 
 v3: fan-out is the default. A multi-target path broadcasts the value to
 every resolved object, all writes share one Undo group, and per-target
@@ -1115,6 +1121,9 @@ Notes:
     values can contain spaces.
   - Other composite properties (Generic structs / ManagedReference) must
     still be set via their leaf fields, not as a whole.
+  - A name with no serialized field (e.g. Transform.position/eulerAngles, or
+    a custom C# property) is written via its C# setter; localPosition etc.
+    remain the serialized fields. Sub-fields (position.x) read-modify-write.
   - The target object is marked dirty automatically.
 `)
 	case "inspect":

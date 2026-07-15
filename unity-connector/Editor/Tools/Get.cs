@@ -367,8 +367,28 @@ namespace UnityCliConnector.Tools
 			using var so = new SerializedObject(readTarget);
 			var root = PathResolver.FindPropertyByUserName(so, parsed.Properties[0]);
 			if (root == null)
-				return new ErrorResponse(
-					$"No property '{parsed.Properties[0]}' on {component.GetType().Name}.");
+			{
+				// No backing SerializedProperty — fall back to reading the name
+				// as a public C# member (e.g. Transform.position, a computed
+				// getter, or a custom MonoBehaviour property).
+				var reflRes = ReflectionMemberProxy.Read(readTarget, parsed.Properties);
+				if (!reflRes.IsSuccess) return ErrorResponse.FromResult(reflRes);
+				var rr = reflRes.Value;
+				if (format == "json")
+				{
+					return new SuccessResponse("", new Dictionary<string, object>
+					{
+						["path"] = PathResolver.GetCanonicalPath(go),
+						["component"] = component.GetType().Name,
+						["property"] = PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count),
+						["type"] = rr.TypeName,
+						["reflected"] = true,
+						["source"] = sourceMode,
+						["value"] = rr.Value,
+					});
+				}
+				return new SuccessResponse("", FormatPipeFriendly(rr.Value));
+			}
 
 			var current = root;
 			for (var i = 1; i < parsed.Properties.Count; i++)

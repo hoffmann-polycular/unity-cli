@@ -235,7 +235,7 @@ namespace UnityCliConnector
 			return dict;
 		}
 
-		private static object ReadObjectReference(Object o)
+		internal static object ReadObjectReference(Object o)
 		{
 			if (o == null) return null;
 

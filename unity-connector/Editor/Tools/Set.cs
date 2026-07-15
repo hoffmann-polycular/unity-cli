@@ -151,7 +151,12 @@ namespace UnityCliConnector.Tools
 				var root = PathResolver.FindPropertyByUserName(so, parsed.Properties[0]);
 				if (root == null)
 				{
-					errors.Add($"{PathResolver.GetCanonicalPath(go)}: no property '{parsed.Properties[0]}' on {component.GetType().Name}.");
+					// No backing SerializedProperty — try writing the name as a
+					// public C# member (Transform.position, a custom property, …)
+					// via reflection, following the same Undo/dirty channel.
+					var reflRes = ReflectionMemberProxy.Set(component, parsed.Properties, rawValue);
+					if (!reflRes.IsSuccess) { errors.Add($"{PathResolver.GetCanonicalPath(go)}: {reflRes.ErrorMessage}"); continue; }
+					applied.Add(reflRes.Value);
 					continue;
 				}
 
@@ -401,7 +406,10 @@ namespace UnityCliConnector.Tools
 			var root = PathResolver.FindPropertyByUserName(so, parsed.Properties[0]);
 			if (root == null)
 			{
-				errors.Add($"{PathResolver.GetCanonicalPath(go)}: no property '{parsed.Properties[0]}' on {component.GetType().Name}.");
+				// No backing SerializedProperty — try the public C# member via reflection.
+				var reflRes = ReflectionMemberProxy.Set(component, parsed.Properties, rawValue);
+				if (!reflRes.IsSuccess) { errors.Add($"{PathResolver.GetCanonicalPath(go)}: {reflRes.ErrorMessage}"); return; }
+				applied.Add(reflRes.Value);
 				return;
 			}
 

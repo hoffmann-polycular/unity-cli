@@ -460,8 +460,20 @@ namespace UnityCliConnector.Tools
 			using var so = new SerializedObject(component);
 			var root = PathResolver.FindPropertyByUserName(so, parsed.Properties[0]);
 			if (root == null)
+			{
+				// prefab apply/revert operate on SerializedProperty overrides. A
+				// name with no backing serialized field (e.g. a computed C#
+				// property like Transform.position) can't be an override — point
+				// the user at the serialized field instead.
+				if (ReflectionMemberProxy.TryResolveMember(component, parsed.Properties[0], out _))
+					return new ErrorResponse(
+						$"'{parsed.Properties[0]}' is a computed C# member on {component.GetType().Name}, not a "
+						+ "serialized property, so it has no prefab override. Target the serialized field "
+						+ "(e.g. 'localPosition' instead of 'position').",
+						ErrorKind.Usage);
 				return new ErrorResponse(
 					$"No property '{parsed.Properties[0]}' on {component.GetType().Name}.");
+			}
 
 			var current = root;
 			for (var i = 1; i < parsed.Properties.Count; i++)

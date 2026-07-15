@@ -462,7 +462,7 @@ namespace UnityCliConnector
 
 		// ---- object resolution ----
 
-		private static Result<Object> ResolveObjectFromValue(JToken value, string expected)
+		internal static Result<Object> ResolveObjectFromValue(JToken value, string expected)
 		{
 			if (value == null || value.Type == JTokenType.Null)
 				return Result<Object>.Success(null);
@@ -566,7 +566,7 @@ namespace UnityCliConnector
 
 		// ---- coercion helpers ----
 
-		private static bool TryAsLong(JToken t, out long value)
+		internal static bool TryAsLong(JToken t, out long value)
 		{
 			value = 0;
 			if (t == null) return false;
@@ -577,7 +577,7 @@ namespace UnityCliConnector
 			return long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
 		}
 
-		private static bool TryAsFloat(JToken t, out float value)
+		internal static bool TryAsFloat(JToken t, out float value)
 		{
 			value = 0;
 			if (t == null) return false;
@@ -587,7 +587,7 @@ namespace UnityCliConnector
 			return float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
 		}
 
-		private static bool TryAsBool(JToken t, out bool value)
+		internal static bool TryAsBool(JToken t, out bool value)
 		{
 			value = false;
 			if (t == null) return false;
@@ -600,13 +600,13 @@ namespace UnityCliConnector
 			return false;
 		}
 
-		private static string AsString(JToken t)
+		internal static string AsString(JToken t)
 		{
 			if (t == null || t.Type == JTokenType.Null) return null;
 			return t.ToString();
 		}
 
-		private static bool TryAsFloats(JToken t, int count, out float[] result)
+		internal static bool TryAsFloats(JToken t, int count, out float[] result)
 		{
 			result = null;
 			if (t == null) return false;
@@ -650,7 +650,7 @@ namespace UnityCliConnector
 			return true;
 		}
 
-		private static bool TryAsInts(JToken t, int count, out int[] result)
+		internal static bool TryAsInts(JToken t, int count, out int[] result)
 		{
 			result = null;
 			if (!TryAsFloats(t, count, out var floats)) return false;
@@ -659,7 +659,7 @@ namespace UnityCliConnector
 			return true;
 		}
 
-		private static bool TryAsColor(JToken t, out Color color)
+		internal static bool TryAsColor(JToken t, out Color color)
 		{
 			color = default;
 			if (t == null) return false;

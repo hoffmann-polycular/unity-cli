@@ -251,8 +251,13 @@ namespace UnityCliConnector.Tools
 			using var so = new SerializedObject(component);
 			var root = PathResolver.FindPropertyByUserName(so, parsed.Properties[0]);
 			if (root == null)
-				return new ErrorResponse(
-					$"No property '{parsed.Properties[0]}' on {component.GetType().Name}.");
+			{
+				// No backing SerializedProperty — read the name as a public C#
+				// member (Transform.position, a computed getter, …).
+				var reflRes = ReflectionMemberProxy.Read(component, parsed.Properties);
+				if (!reflRes.IsSuccess) return ErrorResponse.FromResult(reflRes);
+				return RenderReflectedProperty(go, component, parsed.Properties, reflRes.Value, format);
+			}
 
 			var current = root;
 			for (var i = 1; i < parsed.Properties.Count; i++)
@@ -661,6 +666,35 @@ namespace UnityCliConnector.Tools
 			if (prop.prefabOverride) sb.Append("  (override)");
 			sb.Append('\n');
 			AppendValueHuman(value, sb, depth: 1);
+			return new SuccessResponse("", sb.ToString().TrimEnd('\n'));
+		}
+
+		// Renders a property that resolved through the reflection fallback
+		// (no backing SerializedProperty, so no prefabOverride flag).
+		private static object RenderReflectedProperty(
+			GameObject go, Component c, List<string> propPath,
+			ReflectionMemberProxy.ReadResult rr, string format)
+		{
+			var joined = PathResolver.JoinPropertyPath(propPath, propPath.Count);
+
+			if (format == "json")
+			{
+				return new SuccessResponse("", new Dictionary<string, object>
+				{
+					["path"] = PathResolver.GetCanonicalPath(go),
+					["component"] = c.GetType().Name,
+					["property"] = joined,
+					["type"] = rr.TypeName,
+					["reflected"] = true,
+					["value"] = rr.Value,
+				});
+			}
+
+			var sb = new StringBuilder();
+			sb.Append(PathResolver.GetCanonicalPath(go))
+			  .Append(':').Append(c.GetType().Name).Append('.').Append(joined)
+			  .Append("  (C# member)").Append('\n');
+			AppendValueHuman(rr.Value, sb, depth: 1);
 			return new SuccessResponse("", sb.ToString().TrimEnd('\n'));
 		}
 
