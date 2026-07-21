@@ -54,6 +54,7 @@ var knownBooleanFlags = map[string]bool{
 	"--first": true, "--last": true,
 	"--upgrade": true, "--uninstall": true,
 	"--force": true, "--allow-dirty-scenes": true, "--auto-save-scenes": true,
+	"--normalized": true, "--flip": true,
 }
 
 func isKnownBooleanFlag(flag string) bool {

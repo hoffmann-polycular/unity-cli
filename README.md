@@ -78,6 +78,12 @@ unity-cli find Assets/Sprites/ --type Texture2D --plain | \
 - `menu` — execute any menu item by path
 - `screenshot` / `profiler` — capture views and query frame data
 
+**Input simulation** (play mode)
+- `click` — real EventSystem pointer click on a UI element or screen coordinate
+- `drag` — real EventSystem drag-and-drop between two locations
+- Raycast-gated: an occluded or non-interactable target is refused, not faked — a
+  target a player couldn't reach is reported clearly instead of dispatched to
+
 **Shell integration**
 - `completion` — tab completion for bash, zsh, fish, and PowerShell, including live hierarchy paths
 - Pipe-native output: `ls`, `find`, `get` default to one-path-per-line plain output
@@ -217,6 +223,8 @@ See [Installation](docs/installation.md) for more detail on the Connector intern
 | `menu` | Editor | Execute a menu item by path |
 | `screenshot` | Editor | Capture scene or game view |
 | `profiler` | Editor | Query profiler hierarchy and control recording |
+| `click` | Editor | Real EventSystem click on a UI element or screen coordinate (play mode) |
+| `drag` | Editor | Real EventSystem drag-and-drop between two locations (play mode) |
 | `status` | Tooling | Show Unity connection state |
 | `list` | Tooling | List all registered tools and their schemas |
 | `completion` | Tooling | Print shell completion script |

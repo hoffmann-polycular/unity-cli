@@ -205,11 +205,56 @@ unity-cli screenshot --view scene          # Scene View camera render
 unity-cli screenshot --view /World/MainCamera -o Screenshots/frame.png
 unity-cli profiler hierarchy --depth 3 --min 0.5
 
+# Call a method / Odin [Button] on a component (any access: public/private/static).
+# Args are coerced like `set` values; the return value prints like `get`.
+unity-cli invoke /World/Safe:KnobCombination.Solve      # drive an Odin [Button]
+unity-cli invoke :Enemy.SetHealth 100                   # selection-anchored
+unity-cli invoke /World/Player:Mover.MoveTo "1 2 3"     # vector arg
+unity-cli find --component Enemy --plain | unity-cli invoke :Enemy.Reset   # fan-out
+
 unity-cli exec "return Camera.main.transform.position.ToString();"
 unity-cli exec "Selection.activeGameObject.name = \"Renamed\";"
-# ↑ exec is LAST RESORT ONLY. Prefer get/set/find/component/scene/… and shell composition.
+# ↑ exec is LAST RESORT ONLY. Prefer get/set/invoke/find/component/scene/… and shell composition.
+# To drive a method or Odin [Button], use `invoke` — not exec+reflection.
 # Reach for exec only when the task genuinely cannot be expressed through available subcommands.
 ```
+
+### Input simulation — gameplay QA (play mode only)
+
+For driving the game **as a player would**, use `click` / `drag`. They go through
+the real `EventSystem` (raycast + `ExecuteEvents`), so game **gating is respected**:
+an occluded, non-interactable, or non-raycastable target is *refused with a
+reason* rather than actioned.
+
+**Prefer this over `invoke`/`exec` for anything a player does with a pointer.**
+`invoke button.onClick` / calling `OnUse`/`Pickup`/`OnItemDrop` bypasses
+interactable state, occlusion, and obtainability gating and can reach states a
+player never could — invalidating a QA run. `click`/`drag` cannot.
+
+```bash
+# A location is a path OR a screen coordinate "X,Y" (bottom-left origin, pixels),
+# disambiguated by content like a `set` value.
+unity-cli click /UI/Canvas/StartButton          # real click; fires onClick if interactable
+unity-cli click 512,300                          # click a screen coordinate
+unity-cli click 0.5,0.5 --normalized             # 0..1 fractions of the Game View
+unity-cli click 640,200 --flip                   # a pixel read off a screenshot (top-left origin)
+unity-cli click /UI/Target --button right
+
+unity-cli drag /UI/Inventory/Item3 /UI/Inventory/Slot0   # real drag-and-drop
+unity-cli drag 512,1700 512,600 --steps 12               # a swipe (e.g. scroll a ScrollRect)
+```
+
+Notes:
+- **Play mode required** — run `unity-cli editor play` first (the EventSystem
+  only routes events while playing).
+- Works for uGUI and for 3D/2D objects wired into the EventSystem (a
+  `PhysicsRaycaster`/`Physics2DRaycaster` on a camera + `IPointer*` handlers).
+  Gameplay that polls `UnityEngine.Input` directly is **not** drivable under the
+  legacy input backend — that is a real limitation, not a bug; report it rather
+  than falling back to `invoke` on internal methods.
+- A refusal ("not reachable / non-interactable / nothing raycastable") is the
+  correct, player-faithful outcome — do not work around it by invoking internals.
+- Keyboard / text entry are not yet supported by these commands.
 
 ### Interactive mode
 

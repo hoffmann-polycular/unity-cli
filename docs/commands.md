@@ -26,6 +26,9 @@ All commands with their options and examples. Use `unity-cli <command> --help` f
 **Editor control**
 [editor](#editor) · [console](#console) · [exec](#exec) · [test](#test) · [menu](#menu) · [screenshot](#screenshot) · [profiler](#profiler)
 
+**Input simulation** (play mode)
+[click](#click) · [drag](#drag)
+
 **Tooling**
 [status](#status) · [list](#list) · [completion](#completion) · [update](#update) · [init](#init) · [interactive](#interactive) · [Custom tools](#custom-tools)
 
@@ -1081,6 +1084,89 @@ unity-cli profiler enable
 unity-cli profiler disable
 unity-cli profiler status
 unity-cli profiler clear
+```
+
+---
+
+## click
+
+Synthesise a real pointer **click** through Unity's `EventSystem`, so game logic
+decides what is allowed. **Requires play mode** (`unity-cli editor play`).
+
+Unlike `invoke button.onClick` or calling handler methods directly, this goes
+through the real raycast + event dispatch (`EventSystem.RaycastAll` +
+`ExecuteEvents`). A **non-interactable** button, an **occluded** element, or a
+target with **no raycaster** is *refused with a reason* — never silently
+"clicked" into a state a player could not reach.
+
+```
+unity-cli click <location> [--button left|right|middle] [--normalized] [--flip] [--json]
+```
+
+**Location** (one positional, disambiguated by content the same way a `set`
+value is):
+- `<path>` — an element path (e.g. `/World/UI/Button`). The click is aimed at the
+  element's screen centre and must actually land on it (or a descendant / the
+  same click handler), else it is refused.
+- `<X,Y>` — a screen coordinate, e.g. `512,300`. Clicks whatever is topmost
+  there. Use `./512,300` to force path interpretation of a literal name.
+
+**Coordinates** are Unity screen space: **pixels, bottom-left origin** (like
+`Input.mousePosition`). Screenshot PNGs are top-left origin — pass `--flip` to
+convert a screenshot pixel, or `--normalized` to give `0..1` fractions.
+
+**Options:**
+- `--button <left|right|middle>` — mouse button (default `left`).
+- `--normalized` — interpret `X,Y` as `0..1` fractions of the Game-View size.
+- `--flip` — `X,Y` are top-left origin (e.g. a screenshot pixel); auto-convert.
+- `--json` — structured result (`clicked` / `hit` / `handler` / `at` / `button`).
+
+**Examples:**
+```bash
+unity-cli click /World/UI/Canvas/StartButton
+unity-cli click 512,300
+unity-cli click 0.5,0.5 --normalized
+unity-cli click 640,200 --flip            # a pixel read off a screenshot
+unity-cli click /World/UI/Target --button right
+```
+
+**Notes:**
+- EventSystem only: works for uGUI and for 3D/2D objects that participate in the
+  event system (a `PhysicsRaycaster` / `Physics2DRaycaster` on a camera plus
+  `IPointer*` handlers). Under the legacy input backend, gameplay that polls
+  `UnityEngine.Input` directly cannot be driven.
+- Keyboard / text entry are not part of this command.
+
+---
+
+## drag
+
+Synthesise a real pointer **drag** (down → move → up + drop) through Unity's
+`EventSystem`, so drag-and-drop game logic runs as it would for a player.
+**Requires play mode.**
+
+```
+unity-cli drag <from> <to> [--steps N] [--normalized] [--flip] [--json]
+```
+
+Both endpoints are **locations** — an element path or a screen coordinate
+`X,Y` (same rules as `click`). The **press** endpoint is raycast-gated: it must
+land on the intended draggable (something with an `IDragHandler` /
+`IBeginDragHandler`), else the drag is refused. The **drop** endpoint dispatches
+to whatever `IDropHandler` is under the release point.
+
+**Options:**
+- `--steps <N>` — interpolation steps between endpoints (default `8`). More steps
+  = smoother `IDragHandler` motion.
+- `--normalized` — interpret `X,Y` as `0..1` fractions of the Game-View size.
+- `--flip` — `X,Y` are top-left origin (e.g. a screenshot pixel).
+- `--json` — structured result (`from` / `to` / `dragged` / `dropTarget` / `steps`).
+
+**Examples:**
+```bash
+unity-cli drag /UI/Inventory/Item3 /UI/Inventory/Slot0
+unity-cli drag 512,300 700,400
+unity-cli drag /UI/Inventory/Item3 700,400 --steps 16
 ```
 
 ---

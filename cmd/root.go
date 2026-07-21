@@ -240,6 +240,10 @@ func dispatchOnline(category string, subArgs []string, send sendFn, resolve inst
 		return setCmd(subArgs, send)
 	case "invoke":
 		return invokeCmd(subArgs, send)
+	case "click":
+		return clickCmd(subArgs, send)
+	case "drag":
+		return dragCmd(subArgs, send)
 	case "component":
 		return componentCmd(subArgs, send)
 	case "select":
@@ -458,6 +462,10 @@ Editor
   reserialize [path...]       force YAML reserialization
   profiler hierarchy|enable|disable|status|clear
   exec "<C# code>"            arbitrary C# (return for output)
+
+Input simulation (play mode)
+  click <path|X,Y>            real EventSystem click (respects raycast/interactable gating)
+  drag <from> <to>            real EventSystem drag+drop; each is a path or X,Y
 
 Diagnostics
   status                      show Unity state
@@ -1259,6 +1267,80 @@ Notes:
   - Methods distinguished only by argument type may be ambiguous, since CLI
     args are untyped strings (e.g. "7" fits both int and string overloads).
   - params-array methods are not specially handled.
+`)
+	case "click":
+		fmt.Print(`Usage: unity-cli click <location> [options]
+
+Synthesise a real pointer click through Unity's EventSystem, so game logic
+decides what is allowed. REQUIRES PLAY MODE ('unity-cli editor play').
+
+Unlike 'invoke button.onClick' or calling handler methods directly, this goes
+through the real raycast + event dispatch: a non-interactable button, an
+occluded element, or a target with no raycaster is REFUSED with a reason —
+never silently "clicked" into a state a player could not reach.
+
+Location (one positional, disambiguated by content like a 'set' value):
+  <path>        An element path (e.g. /World/UI/Button). The click is aimed at
+                the element's screen centre and must actually land on it (or a
+                descendant / the same click handler), else it is refused.
+  <X,Y>         A screen coordinate, e.g. 512,300. Clicks whatever is on top
+                there. Use './512,300' to force path interpretation of a name.
+
+Coordinates are Unity screen space: PIXELS, BOTTOM-LEFT origin (like
+Input.mousePosition). Screenshot PNGs are top-left origin — pass --flip to
+convert a screenshot pixel, or --normalized to give 0..1 fractions.
+
+Options:
+  --button <left|right|middle>  Mouse button (default left).
+  --normalized                  X,Y are 0..1 fractions of the Game-View size.
+  --flip                        X,Y are top-left origin (e.g. a screenshot).
+  --json                        Structured result (clicked/hit/handler/at).
+
+Examples:
+  unity-cli click /World/UI/Canvas/StartButton
+  unity-cli click 512,300
+  unity-cli click 0.5,0.5 --normalized
+  unity-cli screenshot -o shot.png   # then, for a pixel read at top-left origin:
+  unity-cli click 640,200 --flip
+  unity-cli click /World/UI/ContextTarget --button right
+
+Notes:
+  - EventSystem only: works for uGUI and for 3D/2D objects that participate in
+    the event system (a PhysicsRaycaster / Physics2DRaycaster on a camera plus
+    IPointer* handlers). Under the legacy input backend, gameplay that polls
+    UnityEngine.Input directly cannot be driven — that awaits the new Input
+    System backend.
+  - Keyboard / text entry are not part of this command yet.
+`)
+	case "drag":
+		fmt.Print(`Usage: unity-cli drag <from> <to> [options]
+
+Synthesise a real pointer drag (down -> move -> up + drop) through Unity's
+EventSystem, so drag-and-drop game logic runs as it would for a player.
+REQUIRES PLAY MODE ('unity-cli editor play').
+
+Both endpoints are locations — an element path or a screen coordinate 'X,Y'
+(same rules as 'click'). The PRESS endpoint is raycast-gated: it must land on
+the intended draggable (something with an IDragHandler / IBeginDragHandler),
+else the drag is refused. The DROP endpoint dispatches to whatever IDropHandler
+is under the release point.
+
+Options:
+  --steps <N>       Interpolation steps between endpoints (default 8). More
+                    steps = smoother IDragHandler motion.
+  --normalized      X,Y are 0..1 fractions of the Game-View size.
+  --flip            X,Y are top-left origin (e.g. a screenshot pixel).
+  --json            Structured result (from/to/dragged/dropTarget).
+
+Examples:
+  unity-cli drag /UI/Inventory/Item3 /UI/Inventory/Slot0
+  unity-cli drag 512,300 700,400
+  unity-cli drag /UI/Inventory/Item3 700,400 --steps 16
+
+Notes:
+  - Works for uGUI drag-and-drop (IBeginDrag/IDrag/IEndDrag/IDrop) and for any
+    3D/2D object wired into the event system. Input-polling drag logic is not
+    drivable under the legacy input backend.
 `)
 	case "exec":
 		fmt.Print(`Usage: unity-cli exec "<code>" [options]
