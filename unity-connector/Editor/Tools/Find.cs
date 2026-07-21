@@ -60,10 +60,10 @@ namespace UnityCliConnector.Tools
 			[ToolParameter("Scene: name glob (e.g. 'Enemy*').")]
 			public string Name { get; set; }
 
-			[ToolParameter("Scene: require a component of this type (may repeat).")]
+			[ToolParameter("Scene: require a component of this type or interface (e.g. IDragHandler) (may repeat).")]
 			public string Component { get; set; }
 
-			[ToolParameter("Scene: exclude objects that have a component of this type (may repeat).")]
+			[ToolParameter("Scene: exclude objects that have a component of this type or interface (may repeat).")]
 			public string Missing { get; set; }
 
 			[ToolParameter("Scene: --component / --missing match exact type only, not subclasses.")]
@@ -184,7 +184,7 @@ namespace UnityCliConnector.Tools
 			var requiredTypes = new List<Type>();
 			foreach (var n in components)
 			{
-				var t = TypeResolver.ResolveComponentType(n);
+				var t = TypeResolver.ResolveComponentOrInterfaceType(n);
 				if (t == null) return new ErrorResponse($"Unknown component type: '{n}'.");
 				requiredTypes.Add(t);
 			}
@@ -192,7 +192,7 @@ namespace UnityCliConnector.Tools
 			var forbiddenTypes = new List<Type>();
 			foreach (var n in missing)
 			{
-				var t = TypeResolver.ResolveComponentType(n);
+				var t = TypeResolver.ResolveComponentOrInterfaceType(n);
 				if (t == null) return new ErrorResponse($"Unknown component type: '{n}'.");
 				forbiddenTypes.Add(t);
 			}
@@ -386,7 +386,10 @@ namespace UnityCliConnector.Tools
 
 		private static bool HasComponent(GameObject go, Type t, bool exact)
 		{
-			if (!exact) return go.GetComponent(t) != null;
+			// Exact type matching is meaningless for interfaces (no concrete
+			// component's type ever equals the interface), so interfaces always
+			// match by assignability, whether or not --exact-component is set.
+			if (!exact || t.IsInterface) return go.GetComponent(t) != null;
 			var comps = go.GetComponents<Component>();
 			foreach (var c in comps)
 			{

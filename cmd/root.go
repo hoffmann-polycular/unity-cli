@@ -530,8 +530,10 @@ repeated.
 
 Filters:
   --name <glob>           Name glob (e.g. "Enemy*", "Spawn?_*")
-  --component <type>      Require a component of this type (may repeat)
-  --missing <type>        Exclude objects that have this component (may repeat)
+  --component <type>      Require a component of this type or interface
+                          (e.g. IDragHandler) (may repeat)
+  --missing <type>        Exclude objects that have this component/interface
+                          (may repeat)
   --tag <tag>             Match only objects with this tag
   --layer <name>          Match only objects on this layer (layer name)
   --prefab <assetpath>    Match only prefab-instance roots of this asset
@@ -570,6 +572,7 @@ Examples:
   unity-cli find World/UI --component Image
   unity-cli find --component MeshRenderer --missing Collider
   unity-cli find --component Rigidbody --component AudioSource
+  unity-cli find --component IDragHandler --plain   (find draggable UI)
   unity-cli find --prefab Assets/Prefabs/Enemy.prefab --has-overrides
   unity-cli find --component Light --plain | xargs -I{} unity-cli inspect {}:Light
 

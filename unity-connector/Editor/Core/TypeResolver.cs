@@ -52,6 +52,26 @@ namespace UnityCliConnector
 
         public static Type ResolveComponentType(string name)
         {
+            return Resolve(name, IsComponent);
+        }
+
+        /// <summary>
+        /// Like <see cref="ResolveComponentType"/>, but also resolves interface
+        /// names (e.g. "IDragHandler", "IPointerClickHandler"). Used by queries
+        /// that match via <c>GetComponent</c>, which resolves interfaces natively
+        /// to any component implementing them.
+        /// </summary>
+        public static Type ResolveComponentOrInterfaceType(string name)
+        {
+            return Resolve(name, IsComponentOrInterface);
+        }
+
+        // Shared 3-tier lookup used by every resolver.
+        //   1. Fully-qualified type name (any loaded assembly)
+        //   2. Simple name in a common Unity namespace
+        //   3. Simple-name scan across every loaded assembly (user scripts)
+        private static Type Resolve(string name, Func<Type, bool> accept)
+        {
             if (string.IsNullOrWhiteSpace(name)) return null;
             var trimmed = name.Trim();
 
@@ -59,7 +79,7 @@ namespace UnityCliConnector
             foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
             {
                 var t = asm.GetType(trimmed, throwOnError: false, ignoreCase: false);
-                if (IsComponent(t)) return t;
+                if (accept(t)) return t;
             }
 
             // 2. Common namespaces
@@ -69,7 +89,7 @@ namespace UnityCliConnector
                 foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
                 {
                     var t = asm.GetType(qualified, throwOnError: false, ignoreCase: false);
-                    if (IsComponent(t)) return t;
+                    if (accept(t)) return t;
                 }
             }
 
@@ -83,7 +103,7 @@ namespace UnityCliConnector
 
                 foreach (var t in types)
                 {
-                    if (!IsComponent(t)) continue;
+                    if (!accept(t)) continue;
                     if (t.Name == trimmed) return t;
                 }
             }
@@ -94,6 +114,11 @@ namespace UnityCliConnector
         private static bool IsComponent(Type t)
         {
             return t != null && typeof(Component).IsAssignableFrom(t);
+        }
+
+        private static bool IsComponentOrInterface(Type t)
+        {
+            return t != null && (t.IsInterface || typeof(Component).IsAssignableFrom(t));
         }
 
         // Like ResolveComponentType but accepts any UnityEngine.Object subtype
@@ -109,34 +134,7 @@ namespace UnityCliConnector
             if (trimmed.StartsWith("PPtr<", StringComparison.Ordinal) && trimmed.EndsWith(">"))
                 trimmed = trimmed.Substring(5, trimmed.Length - 6).TrimStart('$');
 
-            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                var t = asm.GetType(trimmed, throwOnError: false, ignoreCase: false);
-                if (IsUnityObject(t)) return t;
-            }
-            foreach (var prefix in CommonNamespaces)
-            {
-                var qualified = $"{prefix}.{trimmed}";
-                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-                {
-                    var t = asm.GetType(qualified, throwOnError: false, ignoreCase: false);
-                    if (IsUnityObject(t)) return t;
-                }
-            }
-            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                Type[] types;
-                try { types = asm.GetTypes(); }
-                catch (System.Reflection.ReflectionTypeLoadException e) { types = e.Types; }
-                catch { continue; }
-
-                foreach (var t in types)
-                {
-                    if (!IsUnityObject(t)) continue;
-                    if (t.Name == trimmed) return t;
-                }
-            }
-            return null;
+            return Resolve(trimmed, IsUnityObject);
         }
 
         private static bool IsUnityObject(Type t)
