@@ -4,10 +4,25 @@
 package cmd
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/hoffmann-polycular/unity-cli/internal/client"
 )
+
+// swapPollTiming shrinks the heartbeat poll interval and play-mode wait timeout
+// so reconnect/timeout tests run in milliseconds. Returns a restore func.
+func swapPollTiming() func() {
+	origInterval := statusPollInterval
+	origTimeout := playModeWaitTimeout
+	statusPollInterval = time.Millisecond
+	playModeWaitTimeout = 20 * time.Millisecond
+	return func() {
+		statusPollInterval = origInterval
+		playModeWaitTimeout = origTimeout
+	}
+}
 
 func TestEditorCmd_Play(t *testing.T) {
 	send, params := mockSend("manage_editor", t)
@@ -31,6 +46,80 @@ func TestEditorCmd_PlayWait(t *testing.T) {
 	}
 	if (*params)["wait_for_completion"] != true {
 		t.Errorf("expected wait_for_completion=true, got %v", (*params)["wait_for_completion"])
+	}
+}
+
+// A domain reload on play tears down the connection; the connector's response
+// never arrives. The CLI should poll the heartbeat back through the reload and
+// succeed once the editor reports play mode.
+func TestEditorCmd_PlayWait_ReconnectAfterReload(t *testing.T) {
+	defer swapPollTiming()()
+	send := func(string, interface{}) (*client.CommandResponse, error) {
+		return nil, fmt.Errorf("connection closed before response")
+	}
+	resolve := func() (*client.Instance, error) {
+		return &client.Instance{State: "playing"}, nil
+	}
+	resp, err := editorCmd([]string{"play", "--wait"}, send, resolve)
+	if err != nil {
+		t.Fatalf("expected reconnect to succeed, got error: %v", err)
+	}
+	if resp == nil || !resp.Success {
+		t.Fatalf("expected a success response after reconnect, got %+v", resp)
+	}
+}
+
+// The common reload case: the client reports the drop as a "success" response
+// with ConnectionClosed set (empty body after 200 OK), not as a send error.
+// The CLI must still poll back through the reload.
+func TestEditorCmd_PlayWait_ReconnectOnConnectionClosedSentinel(t *testing.T) {
+	defer swapPollTiming()()
+	send := func(string, interface{}) (*client.CommandResponse, error) {
+		return &client.CommandResponse{Success: true, ConnectionClosed: true,
+			Message: "manage_editor sent (connection closed before response)"}, nil
+	}
+	resolve := func() (*client.Instance, error) {
+		return &client.Instance{State: "playing"}, nil
+	}
+	resp, err := editorCmd([]string{"play", "--wait"}, send, resolve)
+	if err != nil {
+		t.Fatalf("expected reconnect to succeed, got error: %v", err)
+	}
+	if resp == nil || !resp.Success || resp.ConnectionClosed {
+		t.Fatalf("expected a confirmed success response, got %+v", resp)
+	}
+}
+
+// When the editor never reaches play mode (e.g. it actually died), the wait
+// times out and the original send error is surfaced rather than a false success.
+func TestEditorCmd_PlayWait_TimeoutSurfacesError(t *testing.T) {
+	defer swapPollTiming()()
+	send := func(string, interface{}) (*client.CommandResponse, error) {
+		return nil, fmt.Errorf("connection refused")
+	}
+	resolve := func() (*client.Instance, error) {
+		return &client.Instance{State: "ready"}, nil // never flips to playing
+	}
+	if _, err := editorCmd([]string{"play", "--wait"}, send, resolve); err == nil {
+		t.Fatal("expected the original send error to surface after timeout")
+	}
+}
+
+// stop --wait has the same domain-reload drop on exiting play mode.
+func TestEditorCmd_StopWait_ReconnectAfterReload(t *testing.T) {
+	defer swapPollTiming()()
+	send := func(string, interface{}) (*client.CommandResponse, error) {
+		return nil, fmt.Errorf("connection closed before response")
+	}
+	resolve := func() (*client.Instance, error) {
+		return &client.Instance{State: "ready"}, nil
+	}
+	resp, err := editorCmd([]string{"stop", "--wait"}, send, resolve)
+	if err != nil {
+		t.Fatalf("expected reconnect to succeed, got error: %v", err)
+	}
+	if resp == nil || !resp.Success {
+		t.Fatalf("expected a success response after reconnect, got %+v", resp)
 	}
 }
 

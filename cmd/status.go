@@ -114,6 +114,31 @@ func waitForAlive(resolve instanceResolver, timeoutMs int) (*client.Instance, er
 	return nil, fmt.Errorf("timed out waiting for Unity")
 }
 
+// playModeWaitTimeout bounds how long we poll the heartbeat back through the
+// domain reload that entering/exiting play mode triggers. A reload recompiles
+// nothing new (scripts are already built) so it's normally seconds; the ceiling
+// only guards a genuinely dead editor. Overridable in tests.
+var playModeWaitTimeout = 2 * time.Minute
+
+// waitForPlayState polls the heartbeat until the editor reports one of the
+// wanted states, tolerating the connection loss and instance-file churn of the
+// domain reload that entering/exiting play mode causes. Returns true once a
+// wanted state is observed, false on timeout.
+func waitForPlayState(resolve instanceResolver, want map[string]bool) bool {
+	deadline := time.Now().Add(playModeWaitTimeout)
+	for time.Now().Before(deadline) {
+		time.Sleep(statusPollInterval)
+		status, err := resolve()
+		if err != nil || status == nil {
+			continue // file briefly stale/unreadable mid-reload — keep polling.
+		}
+		if want[status.State] {
+			return true
+		}
+	}
+	return false
+}
+
 // waitForReady polls indefinitely until the heartbeat state becomes "ready".
 // Returns true if compilation had errors.
 func waitForReady(resolve instanceResolver) bool {

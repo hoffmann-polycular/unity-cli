@@ -48,6 +48,14 @@ type CommandResponse struct {
 	// usual, prints Stderr to stderr, and exits with a non-zero status.
 	PartialFailure bool   `json:"partialFailure,omitempty"`
 	Stderr         string `json:"stderr,omitempty"`
+
+	// ConnectionClosed is set by the client (never by Unity) when the HTTP
+	// connection dropped before a response body arrived. This is expected when
+	// a command triggers a domain reload — most notably entering/exiting play
+	// mode — which tears the connector's app domain down mid-response. Callers
+	// that need to confirm the outcome (e.g. `editor play --wait`) use this to
+	// poll the heartbeat back through the reload. Not serialized.
+	ConnectionClosed bool `json:"-"`
 }
 
 // isProcessDead returns true only when the process is confirmed to not exist.
@@ -252,8 +260,9 @@ func SendContext(ctx context.Context, inst *Instance, command string, params int
 	if err != nil || len(respBody) == 0 {
 		// Some commands (e.g. play mode entry) close the connection before responding.
 		return &CommandResponse{
-			Success: true,
-			Message: fmt.Sprintf("%s sent (connection closed before response)", command),
+			Success:          true,
+			ConnectionClosed: true,
+			Message:          fmt.Sprintf("%s sent (connection closed before response)", command),
 		}, nil
 	}
 
