@@ -170,6 +170,20 @@ namespace UnityCliConnector
     /// </summary>
     public static class PathParser
     {
+        /// <summary>
+        /// Reports whether a (possibly namespace-qualified) string names a known
+        /// component type. Injected so the otherwise purely-syntactic parser can
+        /// tell a namespace-qualified component type — whose dots collide with the
+        /// property separator, e.g. <c>CliBench.ComboDial</c> or
+        /// <c>UnityEngine.UI.Button</c> — apart from a component-plus-property
+        /// path. Defaults to <see cref="TypeResolver"/>; unit tests may null it out
+        /// to keep the parser Unity-free. Only consulted when the naive "split on
+        /// the first dot" component name is NOT already a recognized component, so
+        /// the common hot path never pays for it.
+        /// </summary>
+        public static Func<string, bool> IsKnownComponentType =
+            name => TypeResolver.ResolveComponentType(name) != null;
+
         public static Result<ParsedPath> Parse(string path)
         {
             if (path == null)
@@ -326,18 +340,7 @@ namespace UnityCliConnector
 
             if (componentPart != null)
             {
-                var dotIdx = componentPart.IndexOf('.');
-                string componentSpec;
-                string propertyPart = null;
-                if (dotIdx >= 0)
-                {
-                    componentSpec = componentPart.Substring(0, dotIdx);
-                    propertyPart = componentPart.Substring(dotIdx + 1);
-                }
-                else
-                {
-                    componentSpec = componentPart;
-                }
+                var (componentSpec, propertyPart) = SplitComponentAndProperty(componentPart);
 
                 if (string.IsNullOrEmpty(componentSpec))
                     return Result<ParsedPath>.Error($"Empty component specifier in '{parsed.Raw}'.");
@@ -574,6 +577,110 @@ namespace UnityCliConnector
             if (!int.TryParse(idxText, out var idx) || idx < 0)
                 return Result<PathSegment>.Error($"Invalid index '[{idxText}]' in segment '{text}'.");
             return Result<PathSegment>.Success(new PathSegment { Name = name, Index = idx });
+        }
+
+        /// <summary>
+        /// Splits the "Component[.property...]" tail into its component spec and
+        /// property part. A namespace-qualified component type
+        /// (e.g. "CliBench.ComboDial", "UnityEngine.UI.Button") contains dots that
+        /// are indistinguishable, syntactically, from the property separator — so
+        /// the historical "split on the first dot" rule mis-reads the leading
+        /// namespace as the whole component (and errors with
+        /// "Unknown component type: 'CliBench'").
+        ///
+        /// We keep that fast first-dot split whenever the first-dot component is
+        /// already a recognized component. Only when it is NOT do we consult
+        /// <see cref="IsKnownComponentType"/> and probe longer dotted prefixes,
+        /// preferring the longest that resolves — which lets fully-qualified type
+        /// names through. If nothing resolves we fall back to the first-dot split
+        /// so the downstream error names the same token as before.
+        /// </summary>
+        private static (string component, string property) SplitComponentAndProperty(string componentPart)
+        {
+            var dots = TopLevelDotIndices(componentPart);
+            if (dots.Count == 0)
+                return (componentPart, null); // no dot → component only, no property.
+
+            var firstDot = dots[0];
+            var naiveComponent = componentPart.Substring(0, firstDot);
+            var oracle = IsKnownComponentType;
+
+            // Fast path: tests (no oracle), a recognized pseudo-component
+            // ("GameObject", an importer, the settings sentinel), or a first-dot
+            // component that is already a known type. Keep the first-dot split.
+            if (oracle == null
+                || IsRecognizedPseudoComponent(naiveComponent)
+                || IsResolvableComponent(naiveComponent, oracle))
+                return (naiveComponent, componentPart.Substring(firstDot + 1));
+
+            // The first-dot component isn't a type — it may be the leading
+            // namespace of a qualified type. Probe longer prefixes, longest first:
+            // the whole string (component with no property), then each top-level
+            // dot boundary after the first. Take the longest that resolves.
+            if (IsResolvableComponent(componentPart, oracle))
+                return (componentPart, null);
+            for (var i = dots.Count - 1; i >= 1; i--)
+            {
+                var d = dots[i];
+                var comp = componentPart.Substring(0, d);
+                if (IsResolvableComponent(comp, oracle))
+                    return (comp, componentPart.Substring(d + 1));
+            }
+
+            // Nothing resolved: fall back to the first-dot split so the downstream
+            // "Unknown component type" error names the same token as it always did.
+            return (naiveComponent, componentPart.Substring(firstDot + 1));
+        }
+
+        /// <summary>
+        /// Cheap check for the pseudo-component names that resolve through
+        /// dedicated code paths rather than <see cref="TypeResolver"/>: the
+        /// <c>GameObject</c> proxy, an asset importer (<c>:Importer</c> or a
+        /// concrete <c>*Importer</c>), and the ProjectSettings root sentinel.
+        /// Keeps their hot paths off the (potentially assembly-scanning) oracle.
+        /// </summary>
+        private static bool IsRecognizedPseudoComponent(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            if (name == SettingsRootSentinel) return true;
+            if (string.Equals(name, GameObjectProxy.PseudoTypeName, StringComparison.OrdinalIgnoreCase))
+                return true;
+            return name.Equals("Importer", StringComparison.OrdinalIgnoreCase)
+                || (name.Length > "Importer".Length
+                    && name.EndsWith("Importer", StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// True when <paramref name="componentSpec"/> (a <c>Type[index]</c> spec,
+        /// index optional) parses and its type name is accepted by
+        /// <paramref name="oracle"/>.
+        /// </summary>
+        private static bool IsResolvableComponent(string componentSpec, Func<string, bool> oracle)
+        {
+            if (string.IsNullOrEmpty(componentSpec)) return false;
+            var pc = ParseComponent(componentSpec);
+            if (!pc.IsSuccess || string.IsNullOrEmpty(pc.Value.TypeName)) return false;
+            return oracle(pc.Value.TypeName);
+        }
+
+        /// <summary>
+        /// Indices of every '.' at bracket depth 0 (i.e. not inside a "[...]"
+        /// index), in ascending order. Used to enumerate candidate
+        /// component/property split points without breaking on indexed
+        /// components like "Foo.Bar[0].prop".
+        /// </summary>
+        private static List<int> TopLevelDotIndices(string s)
+        {
+            var result = new List<int>();
+            var depth = 0;
+            for (var i = 0; i < s.Length; i++)
+            {
+                var c = s[i];
+                if (c == '[') depth++;
+                else if (c == ']') { if (depth > 0) depth--; }
+                else if (c == '.' && depth == 0) result.Add(i);
+            }
+            return result;
         }
 
         /// <summary>
