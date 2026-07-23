@@ -4,11 +4,8 @@
 package cmd
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,18 +13,6 @@ import (
 
 	"github.com/hoffmann-polycular/unity-cli/internal/client"
 )
-
-type suppressWriter struct {
-	w        io.Writer
-	suppress string
-}
-
-func (s *suppressWriter) Write(p []byte) (int, error) {
-	if bytes.Contains(p, []byte(s.suppress)) {
-		return len(p), nil
-	}
-	return s.w.Write(p)
-}
 
 func testCmd(args []string, send sendFn, port int) (*client.CommandResponse, error) {
 	flags := parseSubFlags(args)
@@ -78,11 +63,8 @@ func testCmd(args []string, send sendFn, port int) (*client.CommandResponse, err
 
 	fmt.Fprintln(os.Stderr, "PlayMode tests running, waiting for results...")
 
-	// Suppress "Unsolicited response received on idle HTTP channel" during domain reload
-	original := log.Writer()
-	log.SetOutput(&suppressWriter{w: os.Stderr, suppress: "Unsolicited response received on idle HTTP channel"})
-	defer log.SetOutput(original)
-
+	// The "Unsolicited response received on idle HTTP channel" noise that the
+	// domain reload provokes is suppressed process-wide in Execute().
 	return pollTestResults(port)
 }
 

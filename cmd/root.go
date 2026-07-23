@@ -31,9 +31,12 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -51,7 +54,30 @@ var (
 	flagIgnoreVersionMismatch bool
 )
 
+// suppressWriter drops any log line containing `suppress`, forwarding the rest
+// to the wrapped writer.
+type suppressWriter struct {
+	w        io.Writer
+	suppress string
+}
+
+func (s *suppressWriter) Write(p []byte) (int, error) {
+	if bytes.Contains(p, []byte(s.suppress)) {
+		return len(p), nil
+	}
+	return s.w.Write(p)
+}
+
 func Execute() error {
+	// net/http's client logs "Unsolicited response received on idle HTTP
+	// channel..." to the standard logger whenever the connector answers on a
+	// channel the client already considers idle — which happens after a domain
+	// reload (play/stop --wait, refresh --compile) and while polling PlayMode
+	// test results. It's cosmetic noise that looks like an error and leaks
+	// net/http internals, so drop it process-wide. The standard log package is
+	// used for nothing else in this CLI.
+	log.SetOutput(&suppressWriter{w: os.Stderr, suppress: "Unsolicited response received on idle HTTP channel"})
+
 	flag.IntVar(&flagPort, "port", 0, "Select Unity instance by active heartbeat port")
 	flag.StringVar(&flagProject, "project", "", "Select Unity instance by project path")
 	flag.IntVar(&flagTimeout, "timeout", 120000, "Request timeout in milliseconds")

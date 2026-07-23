@@ -4,10 +4,35 @@
 package cmd
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/hoffmann-polycular/unity-cli/internal/client"
 )
+
+func TestSuppressWriter(t *testing.T) {
+	var out bytes.Buffer
+	w := &suppressWriter{w: &out, suppress: "Unsolicited response received on idle HTTP channel"}
+
+	// A line carrying the noise is dropped but reported as fully written, so the
+	// standard logger doesn't treat it as a short write.
+	noise := []byte(`2026/07/23 14:00:00 Unsolicited response received on idle HTTP channel starting with "HTTP/1.1 200 OK\r\n..."; err=<nil>`)
+	if n, err := w.Write(noise); err != nil || n != len(noise) {
+		t.Fatalf("Write(noise) = (%d, %v), want (%d, nil)", n, err, len(noise))
+	}
+	if out.Len() != 0 {
+		t.Errorf("noise leaked to underlying writer: %q", out.String())
+	}
+
+	// Unrelated output passes through untouched.
+	msg := []byte("Compilation complete.\n")
+	if n, err := w.Write(msg); err != nil || n != len(msg) {
+		t.Fatalf("Write(msg) = (%d, %v), want (%d, nil)", n, err, len(msg))
+	}
+	if got := out.String(); got != string(msg) {
+		t.Errorf("passthrough = %q, want %q", got, msg)
+	}
+}
 
 func mockSend(wantCmd string, t *testing.T) (sendFn, *map[string]interface{}) {
 	t.Helper()
