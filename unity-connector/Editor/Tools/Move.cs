@@ -151,6 +151,17 @@ namespace UnityCliConnector.Tools
 					errorLines.Add($"{PathResolver.GetCanonicalPath(src)}: cannot move into one of its own descendants.");
 					continue;
 				}
+				if (parentT != src.transform.parent && PrefabUtility.IsPartOfAnyPrefab(src))
+				{
+					var instanceRoot = PrefabUtility.GetNearestPrefabInstanceRoot(src);
+					if (instanceRoot != null && instanceRoot != src)
+					{
+						var rootPath = PathResolver.GetCanonicalPath(instanceRoot);
+						errorLines.Add($"{PathResolver.GetCanonicalPath(src)}: cannot reparent — it is a non-root part of the connected prefab instance '{rootPath}'. " +
+							$"Unpack the instance ('prefab unpack {rootPath}') or edit the prefab asset directly ('prefab open <asset>') to restructure it.");
+						continue;
+					}
+				}
 
 				var undoGroup = Undo.GetCurrentGroup();
 				Undo.SetCurrentGroupName($"Move {src.name} → {parentDisplay}/{newName}");
