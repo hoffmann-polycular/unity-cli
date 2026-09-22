@@ -226,6 +226,14 @@ unity-cli my_tool --count 5 --params '{"name":"Player"}'
 ```bash
 # Show all available tools — built-in + project custom
 unity-cli list
+
+# Narrow it: one tool, or one group
+unity-cli list my_tool
+unity-cli list --group my_group
+
+# Rendered like built-in command help (description + parameter table)
+unity-cli help my_tool
+unity-cli help my_group
 ```
 
 Output groups tools by their `Group` attribute. Built-in tools appear under `built-in`; your tools appear under their declared group (or `custom` if unset).

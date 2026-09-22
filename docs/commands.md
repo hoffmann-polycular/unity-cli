@@ -27,7 +27,7 @@ All commands with their options and examples. Use `unity-cli <command> --help` f
 [editor](#editor) · [console](#console) · [exec](#exec) · [test](#test) · [menu](#menu) · [screenshot](#screenshot) · [profiler](#profiler)
 
 **Tooling**
-[status](#status) · [list](#list) · [completion](#completion) · [update](#update) · [init](#init) · [interactive](#interactive) · [Custom tools](#custom-tools)
+[status](#status) · [list](#list) · [help](#help) · [completion](#completion) · [update](#update) · [init](#init) · [interactive](#interactive) · [Custom tools](#custom-tools)
 
 ---
 
@@ -1101,13 +1101,59 @@ The CLI also checks Unity's state automatically before sending any command and w
 
 ## list
 
-List all registered tools (built-in + custom) with their parameter schemas.
+List registered tools (built-in + custom) with their parameter schemas.
 
 ```
-unity-cli list
+unity-cli list [<tool>] [--name <tool>] [--group <group>]
 ```
 
 Discovery is reflection-based over every `[UnityCliTool]` class in the loaded assemblies.
+
+**Options:**
+- `--name <tool>` — only the tool with this exact name. A bare positional argument means the same thing.
+- `--group <group>` — only the tools in this group.
+
+Without a filter this prints the whole registry, which is large on projects that register their own tools. Filter instead of grepping the dump — and for a readable rendering of a single tool, use [`help`](#help) rather than `list`:
+
+```bash
+unity-cli list loc_export        # one tool's JSON schema
+unity-cli list --group loc       # one group's JSON schemas
+unity-cli help loc_export        # the same tool, rendered like built-in help
+```
+
+---
+
+## help
+
+Print the reference for one command, tool, or tool group.
+
+```
+unity-cli help <topic>
+unity-cli <command> --help
+```
+
+Built-in commands are documented offline. Any other topic is looked up in the connector's tool registry, so project-registered tools get the same treatment as built-in ones — name, description, and a typed parameter table:
+
+```
+$ unity-cli help loc_export
+Usage: unity-cli loc_export --file <string> [--source <string>] [--targets
+       <string>]
+
+Export the game's localizable content ... to a localization CSV.
+
+Parameters:
+  --file <string>     (required) Output path for the CSV (absolute, or
+                      relative to the project root). '.csv' is enforced.
+  --source <string>   Source language name (default: the project's default
+                      language)
+  --targets <string>  Comma-separated target language names (default: all
+                      configured languages except the source)
+
+Registered tool in group 'loc' (see 'unity-cli help loc'), not a built-in command.
+JSON schema: unity-cli list loc_export
+```
+
+A group name lists that group's tools as an index into their individual help. Registry lookup needs a running Editor; when none is reachable, an unknown topic is reported as before.
 
 ---
 

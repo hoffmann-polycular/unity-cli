@@ -59,7 +59,13 @@ namespace UnityCliConnector
             return found;
         }
 
-        public static List<object> GetToolSchemas()
+        /// <summary>
+        /// Schemas for every registered tool, optionally narrowed to one tool
+        /// name or one group (both matched case-insensitively). Filtering here
+        /// rather than client-side lets `list --name X` / `help X` fetch a
+        /// single entry instead of the whole registry.
+        /// </summary>
+        public static List<object> GetToolSchemas(string nameFilter = null, string groupFilter = null)
         {
             var tools = new List<object>();
             var nameToType = new Dictionary<string, Type>();
@@ -88,19 +94,29 @@ namespace UnityCliConnector
                     }
                     nameToType[name] = type;
 
+                    var group = attr.Group ?? "";
+                    if (!Matches(nameFilter, name)) continue;
+                    if (!Matches(groupFilter, group)) continue;
+
                     var paramsType = type.GetNestedType("Parameters");
 
                     tools.Add(new
                     {
                         name,
                         description = attr.Description ?? "",
-                        group = attr.Group ?? "",
+                        group,
                         parameters = GetParameterSchema(paramsType),
                     });
                 }
             }
 
             return tools;
+        }
+
+        static bool Matches(string filter, string value)
+        {
+            return string.IsNullOrEmpty(filter)
+                || string.Equals(filter, value, StringComparison.OrdinalIgnoreCase);
         }
 
         public static List<object> GetParameterSchema(Type paramsType)

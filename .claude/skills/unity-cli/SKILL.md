@@ -301,6 +301,8 @@ unity-cli find Assets/Sprites/ --type Texture2D --plain | \
 
 ```bash
 unity-cli list              # all registered tools + parameter schemas
+unity-cli list <tool>       # one tool's schema (or --group <g> for a group)
 unity-cli help <command>    # full flag reference for any command
+unity-cli help <tool>       # same, for a project-registered tool or group
 unity-cli status            # confirm connection before a batch job
 ```

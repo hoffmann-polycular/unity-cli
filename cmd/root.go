@@ -102,7 +102,7 @@ func Execute() error {
 	// --help / -h on any command
 	for _, a := range subArgs {
 		if a == "--help" || a == "-h" {
-			printTopicHelp(category)
+			helpTopic(category, nil)
 			return nil
 		}
 	}
@@ -110,7 +110,7 @@ func Execute() error {
 	switch category {
 	case "help", "--help", "-h":
 		if len(subArgs) > 0 {
-			printTopicHelp(subArgs[0])
+			helpTopic(subArgs[0], nil)
 		} else {
 			printHelp()
 		}
@@ -488,7 +488,7 @@ Editor
 Diagnostics
   status                      show Unity state
   test [--mode EditMode|PlayMode] [--filter ...]
-  list                        list every registered tool
+  list [<tool>] [--group <g>] list registered tools (all, one, or a group)
 
 Tooling
   completion bash|zsh|fish|powershell
@@ -497,7 +497,8 @@ Tooling
                               install the connector UPM package into a project
   interactive [<project>]     enter a REPL where commands omit the unity-cli
                               prefix; pipe internally or with '!cmd' to shell
-  help <command>              detailed reference for one command
+  help <command>              detailed reference for one command, or for
+                              any registered tool / tool group
 
 Global flags
   --port <N>                  pick a Unity instance by heartbeat port
@@ -516,7 +517,10 @@ Run 'unity-cli list' to see every registered tool (including custom ones).
 `)
 }
 
-func printTopicHelp(topic string) {
+// printTopicHelp prints the built-in reference for topic and reports whether
+// the topic was one. Unknown topics print nothing — the caller falls back to
+// the connector's tool registry (see helpTopic).
+func printTopicHelp(topic string) bool {
 	switch topic {
 	case "editor":
 		fmt.Print(`Usage: unity-cli editor <play|stop|pause|refresh> [options]
@@ -1510,12 +1514,25 @@ Examples:
   unity-cli test --mode EditMode --filter MyNamespace.MyTests.SpecificTest
 `)
 	case "list":
-		fmt.Print(`Usage: unity-cli list
+		fmt.Print(`Usage: unity-cli list [<tool>] [options]
 
-List all registered tools (built-in + custom) with parameter schemas.
+List registered tools (built-in + custom) with their parameter schemas.
+With no filter this dumps the whole registry, which is large on projects
+that register their own tools — narrow it instead of grepping the dump.
 
-Example:
+Options:
+  --name <tool>        only the tool with this exact name
+  --group <group>      only the tools in this group
+
+A bare positional argument is treated as --name.
+
+Prefer 'unity-cli help <tool>' for a readable rendering of one tool's
+parameters; 'list' is the JSON form.
+
+Examples:
   unity-cli list
+  unity-cli list loc_export
+  unity-cli list --group loc
 `)
 	case "status":
 		fmt.Print(`Usage: unity-cli status
@@ -1749,6 +1766,7 @@ Verify:
   unity-cli list
 `)
 	default:
-		fmt.Printf("Unknown help topic: %s\n\nUse \"unity-cli --help\" for available commands.\n", topic)
+		return false
 	}
+	return true
 }

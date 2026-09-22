@@ -218,7 +218,8 @@ See [Installation](docs/installation.md) for more detail on the Connector intern
 | `screenshot` | Editor | Capture scene or game view |
 | `profiler` | Editor | Query profiler hierarchy and control recording |
 | `status` | Tooling | Show Unity connection state |
-| `list` | Tooling | List all registered tools and their schemas |
+| `list` | Tooling | List registered tools and their schemas (all, one, or a group) |
+| `help` | Tooling | Reference for a command, a registered tool, or a tool group |
 | `completion` | Tooling | Print shell completion script |
 | `update` | Tooling | Self-update the CLI binary |
 

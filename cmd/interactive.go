@@ -495,7 +495,10 @@ func (s *replSession) runInProcessNonOnline(category string, subArgs []string, s
 	switch category {
 	case "help", "--help", "-h":
 		if len(subArgs) > 0 {
-			printTopicHelp(subArgs[0])
+			// Reuse the session's connection so the registry fallback
+			// (project-registered tools) targets the bound instance.
+			sessionSend, _ := s.commandClosures()
+			helpTopic(subArgs[0], sessionSend)
 		} else {
 			printHelp()
 		}

@@ -33,10 +33,36 @@ namespace UnityCliConnector
             }
         }
 
+        /// <summary>
+        /// `list` is routed here rather than being a [UnityCliTool] so it still
+        /// answers when tool discovery itself is the thing being inspected.
+        /// Optional `name` / `group` filters (or a bare positional name) narrow
+        /// the result to a single tool or one group.
+        /// </summary>
+        static object List(JObject parameters)
+        {
+            var p = new ToolParams(parameters ?? new JObject());
+            var name = p.Get("name") ?? (p.GetRaw("args") as JArray)?.First?.ToString();
+            var group = p.Get("group");
+
+            var tools = ToolDiscovery.GetToolSchemas(name, group);
+            if (tools.Count == 0 && (!string.IsNullOrEmpty(name) || !string.IsNullOrEmpty(group)))
+            {
+                var what = !string.IsNullOrEmpty(name)
+                    ? $"tool '{name}'"
+                    : $"tools in group '{group}'";
+                if (!string.IsNullOrEmpty(name) && !string.IsNullOrEmpty(group))
+                    what = $"tool '{name}' in group '{group}'";
+                return ErrorResponse.NotFound($"No registered {what}.");
+            }
+
+            return new SuccessResponse("Available tools", tools);
+        }
+
         static async Task<object> DispatchInternal(string command, JObject parameters)
         {
             if (command == "list")
-                return new SuccessResponse("Available tools", ToolDiscovery.GetToolSchemas());
+                return List(parameters);
 
             var handler = ToolDiscovery.FindHandler(command);
             if (handler == null)
