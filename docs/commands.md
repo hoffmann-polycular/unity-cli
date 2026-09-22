@@ -958,6 +958,17 @@ Use `return` to get output. Common namespaces are pre-imported. Each invocation 
 - `--usings` — additional using directives (comma-separated), e.g. `Unity.Entities`.
 - `--csc` / `--dotnet` — override auto-detected compiler/runtime paths.
 
+**Using directives.** The snippet is spliced into a method body, where `using` directives are illegal — so any the snippet *starts* with are lifted into the generated file's using block. Both forms work:
+
+```bash
+unity-cli exec 'using MyGame.Ext; return Lang.Mk.ToIsoCode();'
+printf 'using MyGame.Ext;\nreturn Lang.Mk.ToIsoCode();\n' | unity-cli exec
+```
+
+This is what makes extension-method syntax reachable without fully qualifying every type. `using (...)` statements and `using var x = ...;` declarations are left alone. A directive that follows other code cannot be lifted and is rejected with an explanation rather than a syntax error.
+
+**Line numbers.** Compile errors are reported against the snippet, so `L1` is the first line of the code you passed — not a position in the generated wrapper.
+
 Pipe via stdin to avoid shell escaping on complex code:
 
 ```bash

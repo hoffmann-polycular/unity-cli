@@ -1299,7 +1299,9 @@ Notes:
 Execute C# code inside Unity Editor. Full access to UnityEngine,
 UnityEditor, and all loaded assemblies.
 
-Use 'return' to get output. Add --usings for types outside default namespaces.
+Use 'return' to get output. For types outside the default namespaces, either
+write 'using X;' at the top of the snippet (such lines are hoisted into the
+generated file's using block) or pass --usings.
 
 Options:
   --usings <ns1,ns2>   Add extra using directives
@@ -1317,6 +1319,7 @@ Examples:
   echo 'return EditorSceneManager.GetActiveScene().name;' | unity-cli exec
   echo 'Debug.Log("hello"); return null;' | unity-cli exec
   unity-cli exec "return World.All.Count;" --usings Unity.Entities
+  unity-cli exec "using MyGame.Ext; return Lang.Mk.ToIsoCode();"
 
 Stdin:
   Pipe code via stdin to avoid shell escaping issues.
@@ -1324,6 +1327,10 @@ Stdin:
 
 Notes:
   - Use 'return' for output, 'return null;' for void operations
+  - 'using X;' / 'using static X;' / 'using A = X.Y;' lines are lifted out of
+    the snippet, so extension-method syntax works without fully qualifying
+  - Compile errors are reported as snippet line numbers (L1 = first line of
+    the code you passed), not positions in the generated wrapper
 `)
 	case "menu":
 		fmt.Print(`Usage: unity-cli menu "<path>"
