@@ -17,6 +17,7 @@ Any static C# class decorated with `[UnityCliTool]` in an Editor assembly is aut
 - [Calling custom tools](#calling-custom-tools)
 - [Discovery and listing](#discovery-and-listing)
 - [Async tools](#async-tools)
+- [Writing files](#writing-files)
 - [Rules and constraints](#rules-and-constraints)
 
 ---
@@ -271,6 +272,35 @@ public static class LoadBundle
 
 ---
 
+## Writing files
+
+A tool that writes a file to a path the caller supplied must resolve it **against the project
+root**, and report the resolved absolute path back in its `SuccessResponse` data:
+
+```csharp
+private static string ResolveOutputPath(string userPath)
+{
+    if (Path.IsPathRooted(userPath))
+        return Path.GetFullPath(userPath);
+    var projectRoot = Path.GetDirectoryName(Application.dataPath);
+    return Path.GetFullPath(Path.Combine(projectRoot, userPath));
+}
+```
+
+The Editor is a separate process from the shell that invoked the command, and the two do not
+necessarily share a filesystem view — a sandboxed Unity Hub (Flatpak/Snap), a container or WSL
+shell driving a host Editor, and `PrivateTmp=true` all give the two sides different directories
+behind the same absolute path. A write outside the project can therefore succeed here and be
+invisible to the caller, with nothing in the exit code or the response to show it. The project
+directory is the one location both sides agree on.
+
+The CLI checks this from its own side: when a command is handed an output path (`--file`,
+`--out`, `--output`, `--output-path`, `-o`, …) and reports success, the client stats the file
+and warns on stderr when it is not there. Naming the output flag conventionally, and returning
+the resolved path under a `path` key, is what lets that check work for a custom tool.
+
+---
+
 ## Rules and constraints
 
 - Class must be `static`.
@@ -281,3 +311,4 @@ public static class LoadBundle
 - Return `SuccessResponse` for successful results, `ErrorResponse` for failures.
 - Duplicate tool names: first-discovered wins; all duplicates are logged as errors.
 - No explicit registration — drop the class anywhere in an Editor assembly and it's live after the next compile.
+- Resolve caller-supplied output paths against the project root and return the absolute path — see [Writing files](#writing-files).

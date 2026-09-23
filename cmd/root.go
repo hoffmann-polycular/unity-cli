@@ -186,6 +186,11 @@ func Execute() error {
 
 	printResponse(resp)
 
+	// The Editor may not share this shell's filesystem view, so a command
+	// that wrote a file to a caller-supplied path can report success while
+	// nothing is readable here (see outputs.go).
+	warnOutputFile(subArgs, resp, alive.ProjectPath)
+
 	printUpdateNotice()
 
 	if !resp.Success {
@@ -512,6 +517,10 @@ Notes
   - Default output: ls/find/get/cp/mv/create/component emit canonical
     paths (one per line); use --json for structured records.
   - Unity must be running with the Connector package installed.
+  - The Editor writes files, and may not share this shell's filesystem view
+    (sandboxed Hub, container, WSL). Give -o/--file/--out paths inside the
+    project — relative ones resolve against the project root. A warning is
+    printed when a written file turns out not to be visible from here.
 
 Run 'unity-cli list' to see every registered tool (including custom ones).
 `)
@@ -1371,6 +1380,11 @@ Options:
 Output path:
   Omitting -o writes a timestamped file that never overwrites a previous
   capture: Screenshots/<view>_<YYYY-MM-DD_HH-MM-SS>.png
+
+  The Editor performs the write and may not share this shell's filesystem
+  view (sandboxed Hub, container, WSL), so keep -o inside the project — the
+  one location both sides agree on. unity-cli warns when the captured file
+  is not visible from here.
 
 Examples:
   unity-cli screenshot                                   # the live Game View

@@ -68,6 +68,41 @@ Paths are the core abstraction shared by every command.
 
 ---
 
+## Writing Files (output paths)
+
+Some commands take a caller-supplied output path — `screenshot -o`, and any project-registered
+tool with a `--file` / `--out` / `--output` style flag. **The Editor performs the write, not this
+shell.** It is a separate process and does not necessarily share your filesystem view: a sandboxed
+Unity Hub (Flatpak/Snap), a container or WSL shell driving a host Editor, and `PrivateTmp=true`
+all give the two sides different directories behind the same absolute path. When that happens the
+command still exits **0** and reports the path it wrote — and nothing exists there for you. The
+failure is silent and success-shaped; only a listing from this side reveals it.
+
+**Rule: write outputs into the project directory.** It is the one location both sides provably
+agree on — the Editor has it open. Relative output paths are resolved against the project root, so
+a project-relative path is always safe. Do **not** write to a session scratchpad, `/tmp`, or any
+other path outside the project and expect to read it back.
+
+```bash
+unity-cli status                              # prints the project path
+unity-cli screenshot -o Screenshots/shot.png  # project-relative — safe
+ls -l <project-path>/Screenshots/shot.png     # verify before using the file
+```
+
+unity-cli warns on stderr when a command reports writing a file that is not visible from here, but
+verify anyway before reading a file back. If a file is reported written yet missing, confirm the
+split rather than blaming the command — list the same directory from both sides:
+
+```bash
+ls -l /some/dir                                     # caller's view
+unity-cli exec 'return string.Join("\n", System.IO.Directory.GetFiles(@"/some/dir"));'
+```
+
+Disjoint listings mean the two processes are looking at different directories; re-run with a path
+under the project root.
+
+---
+
 ## Command Reference
 
 ### Exploring the scene
@@ -293,6 +328,7 @@ unity-cli find Assets/Sprites/ --type Texture2D --plain | \
 - **Duplicate sibling names**: use `[0]`, `[1]` to disambiguate — e.g. `/World/Enemy[1]`.
 - **Prefab stage active**: after `prefab open`, all paths are relative to the prefab root. Remember to `prefab close` when done.
 - **Asset vs. hierarchy path**: `Assets/...` addresses the asset database; `/World/...` or bare names address the scene hierarchy. Don't mix them.
+- **Output paths outside the project**: a command can report a file written and exit 0 while nothing is there for you — the Editor may not share this shell's filesystem view. Write outputs project-relative and verify (see [Writing Files](#writing-files-output-paths)).
 - **Editor not running**: check `unity-cli status` before a long batch operation. All commands fail immediately if the Editor isn't reachable.
 
 ---

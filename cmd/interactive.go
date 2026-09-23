@@ -425,6 +425,14 @@ func (s *replSession) runUnitySegment(seg []string, stdin string, stdinPiped, ca
 
 	out := finish()
 
+	if err == nil && resp != nil {
+		projectPath := ""
+		if inst, rErr := resolve(); rErr == nil {
+			projectPath = inst.ProjectPath
+		}
+		warnOutputFile(subArgs, resp, projectPath)
+	}
+
 	if err != nil {
 		// Strip exit.CLIError wrapping in REPL — show only the user message.
 		var cliErr *exit.CLIError
