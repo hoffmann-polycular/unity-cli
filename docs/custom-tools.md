@@ -18,6 +18,7 @@ Any static C# class decorated with `[UnityCliTool]` in an Editor assembly is aut
 - [Discovery and listing](#discovery-and-listing)
 - [Async tools](#async-tools)
 - [Writing files](#writing-files)
+- [Teaching an agent about your tools](#teaching-an-agent-about-your-tools)
 - [Rules and constraints](#rules-and-constraints)
 
 ---
@@ -298,6 +299,24 @@ The CLI checks this from its own side: when a command is handed an output path (
 `--out`, `--output`, `--output-path`, `-o`, …) and reports success, the client stats the file
 and warns on stderr when it is not there. Naming the output flag conventionally, and returning
 the resolved path under a `path` key, is what lets that check work for a custom tool.
+
+---
+
+## Teaching an agent about your tools
+
+A project's `[UnityCliTool]` subcommands are invisible to the general
+unity-cli skill — it cannot know what you registered. Two things make them
+discoverable:
+
+- **Write a `Description` and `[ToolParameter]` descriptions.** `unity-cli list`
+  and `unity-cli help <tool>` render them, and the shipped skill tells agents to
+  run those before concluding a capability is missing. A described tool is found;
+  an undescribed one is not.
+- **If you ship a project skill, do not call it `unity-cli`.** A user-level skill
+  shadows a project-level skill of the same name, so `<project>/.claude/skills/unity-cli/`
+  is invisible on any machine where someone installed the unity-cli skill itself
+  (`--with-skill`, or `unity-cli skill install`). Name it after the project —
+  `myproject-unity` — and it loads alongside, instead of being silently ignored.
 
 ---
 
