@@ -20,6 +20,34 @@ unity-connector/      # C# Unity Editor package (UPM)
 2. Go-side code only needed for polling/waiting logic (see `cmd/editor.go`, `cmd/test.go`)
 3. When changing any CLI option, command, or parameter, update all of: C# tool, Go help text (`cmd/root.go` overview + per-command help), `README.md`
 
+## Editing the Claude Code Skill
+
+`.claude/skills/unity-cli/SKILL.md` is the file you edit — it is what Claude
+Code loads inside this repo. `internal/skill/SKILL.md` is a **generated mirror**
+that `go:embed` compiles into the binary (embed cannot reach outside its own
+package directory). After editing the skill:
+
+```
+go run ./tools/skillsync      # regenerate the mirror, then commit both
+```
+
+`TestEmbeddedSkillMatchesRepoCopy` fails when the two drift, so `go test ./...`
+catches a forgotten sync before a release ships a skill older than the repo's.
+
+Keep the skill **introspection-first**: it teaches path grammar, composition and
+pitfalls, and defers to `unity-cli help <command>` / `unity-cli list` for flags.
+Adding a flag should not require touching it; adding a *command* means one row
+in the Command Map. This is deliberate — the skill is a document an agent reads,
+so a stale copy fails silently, and the less of it that can go stale the better.
+
+A contributor who wants the installed skill to track their working copy can
+symlink it (unity-cli detects a symlinked `SKILL.md` and never writes through
+it):
+
+```
+ln -sf "$PWD/.claude/skills/unity-cli/SKILL.md" ~/.claude/skills/unity-cli/SKILL.md
+```
+
 ## Verification (run before every push)
 
 ```bash
