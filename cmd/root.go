@@ -126,6 +126,8 @@ func Execute() error {
 		return updateCmd(subArgs)
 	case "init":
 		return initCmd(subArgs)
+	case "skill":
+		return skillCmd(subArgs)
 	case "interactive":
 		return interactiveCmd(subArgs)
 	case "status":
@@ -500,6 +502,8 @@ Tooling
   update [--check]
   init [<project>] [--local <path>] [--upgrade] [--uninstall] [--wait]
                               install the connector UPM package into a project
+  skill install|status        install / inspect the Claude Code skill that
+                              teaches an agent to drive unity-cli
   interactive [<project>]     enter a REPL where commands omit the unity-cli
                               prefix; pipe internally or with '!cmd' to shell
   help <command>              detailed reference for one command, or for
@@ -1575,6 +1579,49 @@ Options:
 Examples:
   unity-cli update
   unity-cli update --check
+`)
+	case "skill":
+		fmt.Print(`Usage: unity-cli skill [install|status] [options]
+
+Manage the Claude Code skill that teaches an agent how to drive unity-cli
+(path grammar, composition patterns, and the pitfalls that are invisible
+from a command's output).
+
+The skill is compiled into this binary, so it always matches the CLI you
+are running. Nothing is fetched, and no Editor is needed.
+
+Subcommands:
+  status (default)     Where the skill lives and how it compares to the
+                       one embedded in this binary
+  install              Write the embedded skill, recording a marker so a
+                       later run can tell an untouched copy from an
+                       edited one. Safe to re-run; also spelled "sync".
+
+Options:
+  --force              Replace a locally modified copy, or a symlink.
+                       Anything unity-cli did not write is backed up
+                       to SKILL.md.bak first.
+  --path <dir>         Install into <dir> instead of the default
+
+Location:
+  $CLAUDE_CONFIG_DIR/skills/unity-cli/SKILL.md when that variable is set,
+  otherwise ~/.claude/skills/unity-cli/SKILL.md.
+
+Staying current:
+  An installed copy that unity-cli wrote and nobody has edited is brought
+  up to date automatically after an upgrade. A copy you edited, or one of
+  unknown origin, is only reported — never overwritten. Set
+  UNITY_CLI_NO_SKILL_SYNC=1 to turn the automatic update off.
+
+Note:
+  A user-level skill shadows a project-level skill of the same name, so a
+  Unity project shipping its own guidance should name it something other
+  than "unity-cli".
+
+Examples:
+  unity-cli skill status
+  unity-cli skill install
+  unity-cli skill install --force
 `)
 	case "init":
 		fmt.Print(`Usage: unity-cli init [<project-path>] [options]

@@ -216,6 +216,7 @@ var topLevelCommands = []string{
 	"editor", "test", "exec", "ls", "find", "inspect", "get", "set", "invoke",
 	"component", "select", "create", "rm", "cp", "mv", "reorder",
 	"prefab", "scene", "console", "menu", "screenshot", "reserialize", "reimport",
+	"skill",
 	"guid", "path",
 	"profiler", "status", "list", "update", "init", "interactive",
 	"version", "help", "completion",
@@ -228,7 +229,7 @@ var subcommands = map[string][]string{
 	"component":  {"list", "add", "remove"},
 	"profiler":   {"hierarchy", "enable", "disable", "status", "clear"},
 	"completion": {"bash", "zsh", "fish", "powershell"},
-	"help":       {"editor", "ls", "find", "inspect", "get", "set", "invoke", "component", "select", "create", "rm", "cp", "mv", "reorder", "prefab", "scene", "console", "menu", "exec", "screenshot", "reserialize", "profiler", "test", "status", "list", "update", "init", "interactive", "custom-tools", "setup"},
+	"help":       {"editor", "ls", "find", "inspect", "get", "set", "invoke", "component", "select", "create", "rm", "cp", "mv", "reorder", "prefab", "scene", "console", "menu", "exec", "screenshot", "reserialize", "profiler", "test", "status", "list", "update", "init", "skill", "interactive", "custom-tools", "setup"},
 }
 
 var primitiveTypes = []string{
@@ -287,6 +288,7 @@ var commandFlags = map[string][]string{
 	"reorder":    {"--index", "--first", "--last", "--up", "--down", "--before", "--after"},
 	"console":    {"--lines", "--type", "--stacktrace", "--clear"},
 	"screenshot": {"--view", "--supersize", "--width", "--height", "--output-path", "-o"},
+	"skill":      {"install", "status", "--force", "--path"},
 	"reimport":   {"--recursive"},
 	"guid":       {"--json"},
 	"path":       {"--json"},
