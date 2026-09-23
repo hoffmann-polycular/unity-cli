@@ -111,7 +111,7 @@ curl -fsSL https://raw.githubusercontent.com/hoffmann-polycular/unity-cli/main/i
 irm https://raw.githubusercontent.com/hoffmann-polycular/unity-cli/main/install.ps1 | iex
 ```
 
-Add `--with-skill` / `-WithSkill` to also install the [Claude Code skill](docs/installation.md#claude-code-skill) that teaches Claude how to use unity-cli.
+Add `--with-skill` / `-WithSkill` to also install the [Claude Code skill](docs/installation.md#claude-code-skill) that teaches Claude how to use unity-cli. The skill is compiled into the binary, so it always matches the version you installed and is kept up to date on upgrade — `unity-cli skill install` writes it from any existing install.
 
 **Go install**
 ```bash

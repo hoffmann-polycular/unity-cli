@@ -98,7 +98,24 @@ curl -fsSL https://raw.githubusercontent.com/hoffmann-polycular/unity-cli/main/i
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/hoffmann-polycular/unity-cli/main/install.ps1))) -WithSkill
 ```
 
-The skill is written to `~/.claude/skills/unity-cli/SKILL.md` (`%USERPROFILE%\.claude\skills\unity-cli\SKILL.md` on Windows). If `CLAUDE_CONFIG_DIR` is set, the installer writes to `$CLAUDE_CONFIG_DIR/skills/unity-cli/SKILL.md` instead. To update it after a unity-cli upgrade, re-run the installer with the flag, or copy `.claude/skills/unity-cli/SKILL.md` from the repo manually.
+The skill is written to `~/.claude/skills/unity-cli/SKILL.md` (`%USERPROFILE%\.claude\skills\unity-cli\SKILL.md` on Windows), or under `$CLAUDE_CONFIG_DIR` when that is set.
+
+You can also install it at any time from a unity-cli you already have — no Editor needed:
+
+```bash
+unity-cli skill install     # write it
+unity-cli skill status      # where it is, and whether it is current
+```
+
+### Staying current
+
+The skill is **compiled into the binary**, not fetched. Whichever way you installed unity-cli — the script above, the Nix flake, `go install`, a release binary — the skill you get is the one written for that exact version. There is nothing to keep in step by hand.
+
+After an upgrade, an installed copy that unity-cli wrote and you have not edited is brought up to date automatically, with one line saying so. A copy you have edited is never overwritten: unity-cli reports it once a day and leaves it to you (`unity-cli skill install --force` replaces it, keeping a `.bak`). A symlinked `SKILL.md` is left alone entirely, so pointing it at a working copy is safe.
+
+Set `UNITY_CLI_NO_SKILL_SYNC=1` to turn the automatic update off.
+
+> **Naming**: a user-level skill shadows a project-level skill of the same name. A Unity project that ships its own guidance in `.claude/skills/` should name it something other than `unity-cli`, or it will be invisible on any machine that installed this one.
 
 ---
 

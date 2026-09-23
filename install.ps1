@@ -24,11 +24,9 @@ if ($userPath -notlike "*$installDir*") {
 Write-Host "Installed unity-cli to $exe"
 & $exe version
 
+# The skill is compiled into the binary we just installed, so let it write
+# the copy: fetching it from main would pair a release binary with whatever
+# the default branch happens to say, which is the drift this avoids.
 if ($WithSkill) {
-    $claudeDir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { "$env:USERPROFILE\.claude" }
-    $skillDir = "$claudeDir\skills\unity-cli"
-    New-Item -ItemType Directory -Force -Path $skillDir | Out-Null
-    $skillUrl = "https://raw.githubusercontent.com/$repo/main/.claude/skills/unity-cli/SKILL.md"
-    Invoke-WebRequest -Uri $skillUrl -OutFile "$skillDir\SKILL.md" -UseBasicParsing
-    Write-Host "Installed Claude Code skill to $skillDir\SKILL.md"
+    & $exe skill install
 }

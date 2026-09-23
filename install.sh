@@ -52,10 +52,9 @@ esac
 echo "Installed unity-cli to $INSTALL_DIR/unity-cli"
 "$INSTALL_DIR/unity-cli" version
 
+# The skill is compiled into the binary we just installed, so let it write
+# the copy: curling it from main would pair a release binary with whatever
+# the default branch happens to say, which is the drift this avoids.
 if [ "$INSTALL_SKILL" = "1" ]; then
-  SKILL_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/unity-cli"
-  mkdir -p "$SKILL_DIR"
-  curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/.claude/skills/unity-cli/SKILL.md" \
-    -o "$SKILL_DIR/SKILL.md"
-  echo "Installed Claude Code skill to $SKILL_DIR/SKILL.md"
+  "$INSTALL_DIR/unity-cli" skill install
 fi
