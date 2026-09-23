@@ -137,6 +137,7 @@ func Execute() error {
 		}
 		statusErr := statusCmd(inst)
 		printUpdateNotice()
+		maybeSyncSkill()
 		return exit.Wrap(exit.Runtime, statusErr)
 	}
 
@@ -194,6 +195,7 @@ func Execute() error {
 	warnOutputFile(subArgs, resp, alive.ProjectPath)
 
 	printUpdateNotice()
+	maybeSyncSkill()
 
 	if !resp.Success {
 		code := exit.FromKind(resp.ErrorKind)
