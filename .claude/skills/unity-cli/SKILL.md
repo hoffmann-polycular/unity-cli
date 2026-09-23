@@ -14,22 +14,31 @@ description: >
   "run the EditMode tests and show me any failures". If a Unity Editor is (or could be) running, reach for this skill.
 ---
 
+
 # unity-cli
 
 Treats the Unity Editor like a filesystem. `ls`, `find`, `inspect`, `get`, `set` work on GameObjects the way they work on files. Output is pipe-friendly and composable with `jq`, `xargs`, `grep`, and `awk`.
 
+**This document teaches the model: path grammar, composition, and the traps. It is not the flag reference.** The binary is — and the binary is always the one actually installed. Ask it rather than guessing, and prefer it over this file wherever the two disagree.
+
 ---
 
-## Step 0 — Verify the Editor is reachable
-
-Every command requires a live Editor with the Connector package installed.
+## Step 0 — Check the Editor, then ask the binary
 
 ```bash
-unity-cli status          # prints port, project path, version, PID
-                          # errors if Editor not running or connector missing
+unity-cli status                # port, project path, version, PID — errors if unreachable
 ```
 
-If `status` fails, tell the user the Editor needs to be open before proceeding.
+If `status` fails, the Editor needs to be open (with the Connector package installed) before anything else works.
+
+```bash
+unity-cli help <command>        # authoritative flags for any command
+unity-cli list                  # every registered tool, including this project's own
+unity-cli list <tool>           # one tool's parameter schema (--group <g> for a group)
+unity-cli help <tool>           # same, rendered as help, for a project-registered tool
+```
+
+`list` and `help` resolve **project-registered tools** too — a Unity project can add its own `[UnityCliTool]` subcommands, which no general document can know about. When a task sounds project-specific ("export the localization sheet", "rebuild the atlas"), check `unity-cli list` before concluding it cannot be done.
 
 ---
 
@@ -57,6 +66,41 @@ Paths are the core abstraction shared by every command.
 
 ---
 
+## Command Map
+
+What exists, and which command owns the job. For flags, run `unity-cli help <command>`.
+
+| Job | Command |
+|-----|---------|
+| List children / scene roots | `ls [-R] [path]` |
+| Search scenes or the asset database | `find [path] [filters]` |
+| Dump an object, component, or property | `inspect <path>` |
+| Read one value | `get <path>:Comp.prop` |
+| Write one value (registers Undo) | `set <path>:Comp.prop <value>` |
+| Call a method / Odin `[Button]` | `invoke <path>:Comp.Method [args]` |
+| Read / set / clear the Editor selection | `select [<path>...]` |
+| Create empty, primitive, or prefab instance | `create <type> <path>` |
+| Delete | `rm <path>` |
+| Copy / reparent / rename | `cp <src> <dst>`, `mv <src> <dst>` |
+| Reorder siblings or components | `reorder <path> --up\|--down\|--first\|--last\|…` |
+| Add / remove / list components | `component add\|remove\|list <path> [<type>]` |
+| Prefab overrides and lifecycle | `prefab status\|diff\|apply\|revert\|create\|unpack\|variant\|open\|close` |
+| Load / save / activate scenes | `scene list\|open\|close\|save\|reload\|set-active\|new\|dirty` |
+| Asset path ↔ GUID | `guid <path>`, `path <guid>` |
+| Re-run importers / rewrite YAML | `reimport <path>`, `reserialize <path>` |
+| Play mode, pause, recompile | `editor play\|stop\|pause\|refresh` |
+| Read or clear the console | `console [--type ...] [--lines N] [--clear]` |
+| Run a Unity menu item | `menu "File/Save Project"` |
+| Capture the Game/Scene view or a camera | `screenshot [--view ...] [-o file]` |
+| Profiler samples | `profiler hierarchy\|enable\|disable\|status\|clear` |
+| Run tests | `test [--mode EditMode\|PlayMode] [--filter ...]` |
+| Arbitrary C# — **last resort** | `exec "<code>"` |
+| This skill's own install / state | `skill install\|status` |
+
+`exec` evaluates arbitrary C# and bypasses everything the purpose-built commands do for you (path resolution, Undo grouping, fan-out, error classification). Reach for it only when the task genuinely cannot be expressed any other way — and check `unity-cli list` first, in case the project already registered a tool for it.
+
+---
+
 ## Output Formats
 
 | Flag | Best for |
@@ -70,18 +114,9 @@ Paths are the core abstraction shared by every command.
 
 ## Writing Files (output paths)
 
-Some commands take a caller-supplied output path — `screenshot -o`, and any project-registered
-tool with a `--file` / `--out` / `--output` style flag. **The Editor performs the write, not this
-shell.** It is a separate process and does not necessarily share your filesystem view: a sandboxed
-Unity Hub (Flatpak/Snap), a container or WSL shell driving a host Editor, and `PrivateTmp=true`
-all give the two sides different directories behind the same absolute path. When that happens the
-command still exits **0** and reports the path it wrote — and nothing exists there for you. The
-failure is silent and success-shaped; only a listing from this side reveals it.
+Some commands take a caller-supplied output path — `screenshot -o`, and any project-registered tool with a `--file` / `--out` / `--output` style flag. **The Editor performs the write, not this shell.** It is a separate process and does not necessarily share your filesystem view: a sandboxed Unity Hub (Flatpak/Snap), a container or WSL shell driving a host Editor, and `PrivateTmp=true` all give the two sides different directories behind the same absolute path. When that happens the command still exits **0** and reports the path it wrote — and nothing exists there for you. The failure is silent and success-shaped; only a listing from this side reveals it.
 
-**Rule: write outputs into the project directory.** It is the one location both sides provably
-agree on — the Editor has it open. Relative output paths are resolved against the project root, so
-a project-relative path is always safe. Do **not** write to a session scratchpad, `/tmp`, or any
-other path outside the project and expect to read it back.
+**Rule: write outputs into the project directory.** It is the one location both sides provably agree on — the Editor has it open. Relative output paths are resolved against the project root, so a project-relative path is always safe. Do **not** write to a session scratchpad, `/tmp`, or any other path outside the project and expect to read it back.
 
 ```bash
 unity-cli status                              # prints the project path
@@ -89,189 +124,31 @@ unity-cli screenshot -o Screenshots/shot.png  # project-relative — safe
 ls -l <project-path>/Screenshots/shot.png     # verify before using the file
 ```
 
-unity-cli warns on stderr when a command reports writing a file that is not visible from here, but
-verify anyway before reading a file back. If a file is reported written yet missing, confirm the
-split rather than blaming the command — list the same directory from both sides:
+unity-cli warns on stderr when a command reports writing a file that is not visible from here, but verify anyway before reading a file back. If a file is reported written yet missing, confirm the split rather than blaming the command — list the same directory from both sides:
 
 ```bash
 ls -l /some/dir                                     # caller's view
 unity-cli exec 'return string.Join("\n", System.IO.Directory.GetFiles(@"/some/dir"));'
 ```
 
-Disjoint listings mean the two processes are looking at different directories; re-run with a path
-under the project root.
-
----
-
-## Command Reference
-
-### Exploring the scene
-
-```bash
-# List scene roots or children of an object
-unity-cli ls
-unity-cli ls /World
-unity-cli ls -R /World                      # recursive
-unity-cli ls -R /World --components         # include component names
-
-# Search the hierarchy (filters AND-combine)
-unity-cli find --name "Enemy*"
-unity-cli find --component Rigidbody
-unity-cli find --component Rigidbody --missing Collider
-unity-cli find --tag Player --active
-unity-cli find --layer "Ignore Raycast" --inactive
-unity-cli find --is-prefab-instance
-unity-cli find --prefab Assets/Prefabs/Enemy.prefab --has-overrides
-unity-cli find --max-depth 2 /World --component Light
-
-# Search the asset database (path must start with Assets/ or Packages/)
-unity-cli find Assets/ --type Prefab --name "Enemy*"
-unity-cli find Assets/Sprites/ --type Texture2D
-
-# Read a full object, component, or property
-unity-cli inspect /World/Player
-unity-cli inspect /World/Player:Rigidbody
-unity-cli inspect /World/Player:Rigidbody.velocity
-
-# Read a single scalar value
-unity-cli get /World/Player:Rigidbody.mass
-unity-cli get /World/Player:Transform.position
-
-# Editor selection
-unity-cli select --get                      # what's selected now
-unity-cli select /World/Player              # select an object
-unity-cli select --add /World/Enemy[0]      # add to selection
-unity-cli select --clear
-```
-
-### Modifying the scene
-
-```bash
-# Set a property value
-unity-cli set /World/Player:Rigidbody.mass 25
-unity-cli set /World/Player:Transform.position "0 1 0"
-unity-cli set /World/Player:Light.color "#ff8800"
-unity-cli set /World/Enemy:AIScript.target /World/Player    # object reference
-unity-cli set /World/Player:MeshRenderer.enabled false
-
-# Create GameObjects
-unity-cli create Empty /World/Managers/AudioManager
-unity-cli create Cube /World/Terrain/Rock
-unity-cli create --prefab Assets/Prefabs/Enemy.prefab /World/Enemies/Enemy_01
-
-# Delete
-unity-cli rm /World/Temp
-unity-cli find --name "Temp_*" --plain | unity-cli rm
-
-# Copy / move / rename
-unity-cli cp /World/Player /World/Player --auto-suffix "_{n}"
-unity-cli mv /World/OldName /World/Enemies/NewName
-
-# Reorder siblings
-unity-cli reorder /World/Player --first
-unity-cli reorder /World/Player:Rigidbody --up
-
-# Components
-unity-cli component list /World/Player
-unity-cli component add /World/Player NavMeshAgent
-unity-cli component remove /World/Player NavMeshAgent
-```
-
-### Prefab management
-
-```bash
-unity-cli prefab status /World/Enemy[0]          # connection info + override count
-unity-cli prefab diff /World/Enemy[0]            # show override delta
-unity-cli prefab apply /World/Enemy[0]           # push all overrides to asset
-unity-cli prefab apply /World/Enemy[0]:Rigidbody.mass    # one property only
-unity-cli prefab revert /World/Enemy[0]          # pull asset values onto instance
-unity-cli prefab create /World/Enemy[0] Assets/Prefabs/Enemy.prefab  # save as new asset
-unity-cli prefab unpack /World/Enemy[0]          # break connection
-unity-cli prefab unpack /World/Enemy[0] --completely     # unpack nested too
-
-# Enter prefab editing mode (subsequent path commands use the prefab stage as root)
-unity-cli prefab open Assets/Prefabs/Enemy.prefab
-unity-cli inspect /Enemy/Weapon
-unity-cli set /Enemy/Weapon:MeshRenderer.enabled false
-unity-cli prefab close
-```
-
-### Scene management
-
-```bash
-unity-cli scene list
-unity-cli scene open Assets/Scenes/Main.unity
-unity-cli scene open Assets/Scenes/Extra.unity --mode additive
-unity-cli scene save
-unity-cli scene save --as Assets/Scenes/Main_backup.unity
-unity-cli scene close Assets/Scenes/Extra.unity --save
-unity-cli scene reload
-unity-cli scene dirty                            # true/false
-```
-
-### Asset operations
-
-```bash
-unity-cli guid Assets/Prefabs/Player.prefab      # asset path → GUID
-unity-cli path 1a2b3c4d5e6f708090a0b0c0d0e0f010  # GUID → asset path
-unity-cli reimport Assets/Textures/Icon.png
-unity-cli reimport Assets/Textures/ --recursive
-unity-cli reserialize Assets/Prefabs/Player.prefab  # rewrite through Unity's YAML serializer
-```
-
-### Editor control
-
-```bash
-unity-cli editor play --wait          # enter play mode, block until fully in
-unity-cli editor stop
-unity-cli editor pause
-unity-cli editor refresh --compile    # reimport + wait for script compilation
-
-unity-cli console --type error,warning --stacktrace user --lines 20
-unity-cli console --clear
-
-unity-cli menu "File/Save Project"
-
-unity-cli test --mode EditMode
-unity-cli test --mode PlayMode --filter MyTests.SmokeTest
-
-unity-cli screenshot                       # real Game View (UI + post), timestamped PNG, prints its path
-unity-cli screenshot --view scene          # Scene View camera render
-unity-cli screenshot --view /World/MainCamera -o Screenshots/frame.png
-unity-cli profiler hierarchy --depth 3 --min 0.5
-
-unity-cli exec "return Camera.main.transform.position.ToString();"
-unity-cli exec "Selection.activeGameObject.name = \"Renamed\";"
-# ↑ exec is LAST RESORT ONLY. Prefer get/set/find/component/scene/… and shell composition.
-# Reach for exec only when the task genuinely cannot be expressed through available subcommands.
-```
-
-### Interactive mode
-
- `unity-cli interactive` opens a REPL; can not be used by agents that cant use interactive terminal sessions.
+Disjoint listings mean the two processes are looking at different directories; re-run with a path under the project root.
 
 ---
 
 ## Composition Patterns
 
-### Find → read (inspect matching objects)
+The point of the tool. `find` emits one path per line; every mutating command accepts paths on stdin and applies them in a single Undo group.
+
+### Find → read
 ```bash
 unity-cli find --component Light --plain | unity-cli get :Light.intensity
 unity-cli find --name "Enemy*" --plain | unity-cli inspect :Rigidbody
 ```
 
-### Find → mutate (batch set, one Undo group)
+### Find → mutate (one Undo group)
 ```bash
-# Disable every Canvas in the scene
 unity-cli find --component Canvas --plain | unity-cli set :Canvas.enabled false
-
-# Set mass on all Rigidbodies
-unity-cli find --component Rigidbody --plain | unity-cli set :Rigidbody.mass 10
-
-# Add a component to all matching objects
 unity-cli find --name "Enemy*" --plain | unity-cli component add NavMeshAgent
-
-# Delete all matching objects
 unity-cli find --name "Debug_*" --plain | unity-cli rm
 ```
 
@@ -281,26 +158,25 @@ unity-cli get /World/Source:Transform.position | \
     unity-cli set /World/Target:Transform.position
 ```
 
-### Create then inspect
+### Chain through a command's own output
 ```bash
-# create prints the new object path; pipe it straight into inspect
+# create prints the new object path
 unity-cli create Cube /World/Terrain/Rock | unity-cli inspect
 ```
 
-### Batch prefab operations
+### Batch prefab and importer work
 ```bash
-# Revert every override on every instance of a prefab
 unity-cli find --prefab Assets/Prefabs/Enemy.prefab --has-overrides --plain | \
     unity-cli prefab revert
 
-# Find all instances that have drifted
-unity-cli find --is-prefab-instance --has-overrides --plain | unity-cli prefab diff
-```
-
-### Batch asset importer changes
-```bash
 unity-cli find Assets/Sprites/ --type Texture2D --plain | \
     unity-cli set :Importer.maxTextureSize 512
+```
+
+### Filter through standard tools
+```bash
+unity-cli find --component Light --json | jq -r '.[] | select(.name | test("^Sun")) | .path' | \
+    unity-cli set :Light.intensity 2
 ```
 
 ---
@@ -322,23 +198,20 @@ unity-cli find Assets/Sprites/ --type Texture2D --plain | \
 
 ## Common Mistakes
 
+- **Guessing flags instead of asking**: run `unity-cli help <command>`. This document is deliberately not a flag reference, and a flag that existed in some other version is the easiest way to waste a turn.
+- **Assuming a capability is missing**: run `unity-cli list`. Projects register their own subcommands, and they are invisible from here.
+- **Output paths outside the project**: a command can report a file written and exit 0 while nothing is there for you — the Editor may not share this shell's filesystem view. Write outputs project-relative and verify (see [Writing Files](#writing-files-output-paths)).
 - **Windows / Git Bash path mangling**: Git Bash (MSYS2) rewrites arguments starting with `/` into Windows paths before the binary sees them, so `/World/Player` becomes something like `C:/Program Files/Git/World/Player`. Use `export MSYS_NO_PATHCONV=1` — run it once at the start of the session or add it to `~/.bashrc`. Do **not** prepend `MSYS_NO_PATHCONV=1` before each individual command.
 - **Path separator**: always `/`, never `\`.
 - **`get`/`set` without a property**: `:Rigidbody` without `.mass` returns the object path, not a value. Always include `:Component.property`.
 - **Duplicate sibling names**: use `[0]`, `[1]` to disambiguate — e.g. `/World/Enemy[1]`.
 - **Prefab stage active**: after `prefab open`, all paths are relative to the prefab root. Remember to `prefab close` when done.
 - **Asset vs. hierarchy path**: `Assets/...` addresses the asset database; `/World/...` or bare names address the scene hierarchy. Don't mix them.
-- **Output paths outside the project**: a command can report a file written and exit 0 while nothing is there for you — the Editor may not share this shell's filesystem view. Write outputs project-relative and verify (see [Writing Files](#writing-files-output-paths)).
 - **Editor not running**: check `unity-cli status` before a long batch operation. All commands fail immediately if the Editor isn't reachable.
+- **`exec` as a first resort**: it bypasses gating, Undo grouping, and fan-out. Exhaust the purpose-built commands and `unity-cli list` first.
 
 ---
 
-## Introspection
+## Interactive mode
 
-```bash
-unity-cli list              # all registered tools + parameter schemas
-unity-cli list <tool>       # one tool's schema (or --group <g> for a group)
-unity-cli help <command>    # full flag reference for any command
-unity-cli help <tool>       # same, for a project-registered tool or group
-unity-cli status            # confirm connection before a batch job
-```
+`unity-cli interactive` opens a REPL where commands drop the `unity-cli` prefix and pipe internally (`!cmd` shells out for `grep`/`jq`). It cannot be used by agents without an interactive terminal — mention it to users, don't reach for it yourself.
