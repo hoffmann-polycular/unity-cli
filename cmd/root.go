@@ -494,6 +494,14 @@ Editor
   profiler hierarchy|enable|disable|status|clear
   exec "<C# code>"            arbitrary C# (return for output)
 
+Play-mode input (real Input System events; Game View pixels, top-left origin)
+  input tap|down|move|up <x,y | path>      click through the game's own input
+  input drag <from> <to> [--steps N]       press, move, release
+  input scroll <x,y | path> <dy> [<dx>]    mouse wheel
+  input key <Key>[+<Key>...] | type <text> keyboard (also into focused input fields)
+  input pick <x,y | path>                  what a tap there would hit (no input)
+  input reset                              release devices, restore InputSettings
+
 Diagnostics
   status                      show Unity state
   test [--mode EditMode|PlayMode] [--filter ...]
@@ -1514,6 +1522,81 @@ Examples:
   unity-cli profiler hierarchy --root SimulationSystem --depth 3
   unity-cli profiler hierarchy --frames 30 --min 0.5 --sort self
   unity-cli profiler enable
+`)
+	case "input":
+		fmt.Print(`Usage: unity-cli input <action> [args] [options]
+
+Drive the running game with real mouse and keyboard input. Events are queued
+on virtual Input System devices, so the game's own input handling decides
+what happens: the UI module, Mouse.current / Keyboard.current polling,
+raycast blocking, interactable state. Nothing calls game code directly.
+
+Requires play mode (not paused), Active Input Handling set to 'Input System
+Package' or 'Both', and the packages com.unity.inputsystem (>= 1.7.0) and
+com.unity.ugui. Works while the Editor window is unfocused.
+
+Actions:
+  tap <target>            Press and release (one frame apart by default)
+  drag <from> <to>        Press at <from>, move in steps, release at <to>
+  down [<target>]         Move to <target> (if given) and press
+  move <target>           Move the pointer (hover)
+  up [<target>]           Move to <target> (if given) and release
+  scroll <target> <dy> [<dx>]
+                          Mouse wheel at <target>, raw Mouse.scroll units
+                          (positive dy scrolls up)
+  key <Key>[+<Key>...]    Press keys together, then release
+                          (UnityEngine.InputSystem.Key names: A, Digit1,
+                          Enter, Escape, Space, LeftArrow, LeftCtrl, ...)
+  type <text>             Send text input
+  pick <target>           Report what a tap at <target> would hit; no input
+  reset                   Remove the virtual devices and restore InputSettings
+                          (also happens automatically when play mode exits)
+
+Targets:
+  x,y                     Game View pixels, top-left origin — the same space
+                          as 'unity-cli screenshot' at --supersize 1
+  <path>                  A GameObject: UI elements resolve to their rect
+                          centre; other objects to their collider / renderer
+                          bounds centre, projected through --camera
+
+Options:
+  --button <b>            left (default), right, middle — tap/drag/down/up
+  --hold-frames <N>       Frames to hold a tap or key before release (default 1)
+  --steps <N>             Intermediate moves for drag, one per frame (default 10)
+  --camera <path>         Camera for projecting 3D/2D targets and pick
+                          raycasts (default: Camera.main)
+
+Output:
+  Pointer actions print x,y<TAB>kind<TAB>path for the topmost thing under the
+  pointer at the action's position (drag: one line per end). kind is ui, 3d,
+  2d or none. If the path is not your target (or a child of it), something
+  covered it and the game received the input there instead.
+  key prints the combo, type prints 'keyboard'; when an input field had
+  keyboard focus both print '[combo<TAB>]field<TAB>path' instead.
+
+Notes:
+  - While a session is active the Input System's Background Behavior is
+    'Ignore Focus' and Play Mode Input Behavior is 'All Device Input Always
+    Goes To Game View' (an in-memory copy; the project's settings asset is
+    never modified). Real keyboard input in other Editor windows therefore
+    also reaches the game until 'input reset' or play mode exits.
+  - uGUI InputField / TMP_InputField read keys from the IMGUI event queue,
+    which the Input System does not feed. When one has focus, key and type
+    also run the field's own per-key handling (KeyPressed + label refresh),
+    so validation, character limits, onValueChanged and Enter-to-submit
+    behave as for a real keystroke. Focus the field first with a tap.
+    Select-all and copy shortcuts follow the platform: LeftCtrl+A on
+    Windows/Linux, LeftMeta+A on macOS.
+
+Examples:
+  unity-cli input tap 540,960
+  unity-cli input tap /Canvas/Menu/StartButton
+  unity-cli input pick /Canvas/Menu/StartButton     # is it covered?
+  unity-cli input drag /UI/Inventory/Slot0 /World/Machine --steps 15
+  unity-cli input scroll 540,900 -120
+  unity-cli input tap /UI/Form/Email && unity-cli input type "qa@example.com"
+  unity-cli input key LeftCtrl+A
+  unity-cli input key Escape --hold-frames 3
 `)
 	case "test":
 		fmt.Print(`Usage: unity-cli test [options]

@@ -93,6 +93,7 @@ What exists, and which command owns the job. For flags, run `unity-cli help <com
 | Run a Unity menu item | `menu "File/Save Project"` |
 | Capture the Game/Scene view or a camera | `screenshot [--view ...] [-o file]` |
 | Profiler samples | `profiler hierarchy\|enable\|disable\|status\|clear` |
+| Play the game: click, drag, scroll, keys, text — real input, not method calls | `input tap\|drag\|scroll\|key\|type\|pick <x,y \| path>` |
 | Run tests | `test [--mode EditMode\|PlayMode] [--filter ...]` |
 | Arbitrary C# — **last resort** | `exec "<code>"` |
 | This skill's own install / state | `skill install\|status` |

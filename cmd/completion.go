@@ -218,7 +218,7 @@ var topLevelCommands = []string{
 	"prefab", "scene", "console", "menu", "screenshot", "reserialize", "reimport",
 	"skill",
 	"guid", "path",
-	"profiler", "status", "list", "update", "init", "interactive",
+	"profiler", "input", "status", "list", "update", "init", "interactive",
 	"version", "help", "completion",
 }
 
@@ -228,8 +228,9 @@ var subcommands = map[string][]string{
 	"scene":      {"list", "open", "close", "save", "reload", "set-active", "new", "dirty"},
 	"component":  {"list", "add", "remove"},
 	"profiler":   {"hierarchy", "enable", "disable", "status", "clear"},
+	"input":      {"tap", "drag", "down", "move", "up", "scroll", "key", "type", "pick", "reset"},
 	"completion": {"bash", "zsh", "fish", "powershell"},
-	"help":       {"editor", "ls", "find", "inspect", "get", "set", "invoke", "component", "select", "create", "rm", "cp", "mv", "reorder", "prefab", "scene", "console", "menu", "exec", "screenshot", "reserialize", "profiler", "test", "status", "list", "update", "init", "skill", "interactive", "custom-tools", "setup"},
+	"help":       {"editor", "ls", "find", "inspect", "get", "set", "invoke", "component", "select", "create", "rm", "cp", "mv", "reorder", "prefab", "scene", "console", "menu", "exec", "screenshot", "reserialize", "profiler", "input", "test", "status", "list", "update", "init", "skill", "interactive", "custom-tools", "setup"},
 }
 
 var primitiveTypes = []string{
@@ -305,6 +306,14 @@ var subcommandFlags = map[string][]string{
 	"editor refresh":     {"--compile"},
 	"editor play":        {"--wait"},
 	"profiler hierarchy": {"--depth", "--root", "--frames", "--from", "--to", "--parent", "--min", "--sort", "--max", "--frame", "--thread"},
+	"input tap":          {"--button", "--hold-frames", "--camera"},
+	"input drag":         {"--button", "--steps", "--camera"},
+	"input down":         {"--button", "--camera"},
+	"input up":           {"--button", "--camera"},
+	"input move":         {"--camera"},
+	"input scroll":       {"--camera"},
+	"input pick":         {"--camera"},
+	"input key":          {"--hold-frames"},
 }
 
 // flagValueCandidates returns completion candidates for known flag values.
@@ -334,6 +343,8 @@ func flagValueCandidates(cmd, flag, current string) []string {
 		return prefixFilter([]string{"all", "assets", "packages"}, current)
 	case "sort":
 		return prefixFilter([]string{"total", "self", "calls"}, current)
+	case "button":
+		return prefixFilter([]string{"left", "right", "middle"}, current)
 	case "component", "missing":
 		return prefixFilter(commonComponents, current)
 	case "tag":

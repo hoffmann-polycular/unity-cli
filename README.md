@@ -78,6 +78,9 @@ unity-cli find Assets/Sprites/ --type Texture2D --plain | \
 - `menu` — execute any menu item by path
 - `screenshot` / `profiler` — capture views and query frame data
 
+**Play-mode input**
+- `input` — real mouse and keyboard input (tap, drag, scroll, keys, text) injected as Input System events, so the game's own input handling decides what happens; works with the Editor unfocused
+
 **Shell integration**
 - `completion` — tab completion for bash, zsh, fish, and PowerShell, including live hierarchy paths
 - Pipe-native output: `ls`, `find`, `get` default to one-path-per-line plain output
@@ -217,6 +220,7 @@ See [Installation](docs/installation.md) for more detail on the Connector intern
 | `menu` | Editor | Execute a menu item by path |
 | `screenshot` | Editor | Capture scene or game view |
 | `profiler` | Editor | Query profiler hierarchy and control recording |
+| `input` | Play mode | Tap, drag, scroll, press keys and type into the running game |
 | `status` | Tooling | Show Unity connection state |
 | `list` | Tooling | List registered tools and their schemas (all, one, or a group) |
 | `help` | Tooling | Reference for a command, a registered tool, or a tool group |

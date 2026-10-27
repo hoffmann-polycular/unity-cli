@@ -26,6 +26,9 @@ All commands with their options and examples. Use `unity-cli <command> --help` f
 **Editor control**
 [editor](#editor) · [console](#console) · [exec](#exec) · [test](#test) · [menu](#menu) · [screenshot](#screenshot) · [profiler](#profiler)
 
+**Play-mode input**
+[input](#input)
+
 **Tooling**
 [status](#status) · [list](#list) · [help](#help) · [completion](#completion) · [update](#update) · [init](#init) · [interactive](#interactive) · [Custom tools](#custom-tools)
 
@@ -1092,6 +1095,58 @@ unity-cli profiler enable
 unity-cli profiler disable
 unity-cli profiler status
 unity-cli profiler clear
+```
+
+---
+
+## input
+
+Drive the running game with real mouse and keyboard input. Events are queued on virtual Input System devices (`unity-cli Mouse`, `unity-cli Keyboard`), so the game's own input handling decides what happens — the UI module, `Mouse.current` / `Keyboard.current` polling, raycast blocking, interactable state. Nothing calls game code directly, so a tap on a covered or disabled button does what a player's tap would: nothing.
+
+```
+unity-cli input <tap|drag|down|move|up|scroll|key|type|pick|reset> [args] [options]
+```
+
+Requires play mode (not paused), *Active Input Handling* set to `Input System Package` or `Both`, and the packages `com.unity.inputsystem` (>= 1.7.0) and `com.unity.ugui`. Projects without them get an explanatory error. Works while the Editor window is unfocused.
+
+**Actions:**
+- `tap <target>` — press and release.
+- `drag <from> <to>` — press at `<from>`, move in `--steps` steps (one per frame), release at `<to>`.
+- `down [<target>]` / `up [<target>]` — press / release, moving to `<target>` first when given.
+- `move <target>` — move the pointer (hover).
+- `scroll <target> <dy> [<dx>]` — mouse wheel at `<target>`, raw `Mouse.scroll` units; positive `dy` scrolls up.
+- `key <Key>[+<Key>...]` — press keys together, then release. Names are `UnityEngine.InputSystem.Key` values (`A`, `Digit1`, `Enter`, `Escape`, `Space`, `LeftArrow`, `LeftCtrl`, …).
+- `type <text>` — send text input.
+- `pick <target>` — report what a tap at `<target>` would hit, without sending input.
+- `reset` — remove the virtual devices and restore `InputSettings` (also done automatically when play mode exits).
+
+**Targets:**
+- `x,y` — Game View pixels with a top-left origin, the same space as `unity-cli screenshot` at `--supersize 1`.
+- `<path>` — a GameObject. UI elements resolve to their rect centre; other objects to their collider / renderer bounds centre, projected through `--camera`.
+
+**Options:**
+- `--button <left|right|middle>` — mouse button for `tap`, `drag`, `down`, `up` (default `left`).
+- `--hold-frames <N>` — frames to hold a `tap` or `key` before releasing (default 1).
+- `--steps <N>` — intermediate moves for `drag` (default 10).
+- `--camera <path>` — camera for projecting 3D/2D targets and `pick` raycasts (default `Camera.main`).
+
+**Output:** pointer actions print `x,y<TAB>kind<TAB>path` for the topmost thing under the pointer at the action's position (`drag` prints one line for each end). `kind` is `ui`, `3d`, `2d` or `none`. When the path is not your target or one of its children, something covered it and the game got the input there instead. `key` prints the combo and `type` prints `keyboard`; when an input field had keyboard focus they print `<combo><TAB>field<TAB>path` and `field<TAB>path`.
+
+**Focus and settings:** with the Editor unfocused (as it is while a terminal drives it) the Input System would route pointer and keyboard events to the Editor instead of the game. The first `input` command in a play session therefore swaps in an in-memory copy of `InputSettings` with *Background Behavior* = `Ignore Focus` and *Play Mode Input Behavior* = `All Device Input Always Goes To Game View`; the project's settings asset is never modified. Until `input reset` or the end of play mode, real keyboard input in other Editor windows also reaches the game.
+
+**Input fields:** uGUI `InputField` and `TMP_InputField` read keystrokes from the IMGUI event queue, which the Input System does not feed. When one has keyboard focus, `key` and `type` additionally run the field's own per-key handling (the same `KeyPressed` + label refresh its update loop runs), so validation, character limits, `onValueChanged`, `Ctrl+A` and Enter-to-submit behave as for a real keystroke. Focus the field with a `tap` first. Shortcuts follow the platform: `LeftCtrl+A` selects all on Windows/Linux, `LeftMeta+A` on macOS.
+
+**Examples:**
+```bash
+unity-cli input tap 540,960
+unity-cli input tap /Canvas/Menu/StartButton
+unity-cli input pick /Canvas/Menu/StartButton          # covered by something?
+unity-cli input drag /UI/Inventory/Slot0 /World/Machine --steps 15
+unity-cli input scroll 540,900 -120
+unity-cli input tap /UI/Form/Email && unity-cli input type "qa@example.com"
+unity-cli input key LeftCtrl+A
+unity-cli input key Escape --hold-frames 3
+unity-cli input reset
 ```
 
 ---

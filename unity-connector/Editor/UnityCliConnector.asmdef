@@ -9,6 +9,9 @@
   "precompiledReferences": [],
   "autoReferenced": true,
   "defineConstraints": [],
-  "versionDefines": [],
+  "versionDefines": [
+    { "name": "com.unity.inputsystem", "expression": "1.7.0", "define": "UNITY_CLI_INPUT_SYSTEM" },
+    { "name": "com.unity.ugui", "expression": "1.0.0", "define": "UNITY_CLI_UGUI" }
+  ],
   "noEngineReferences": false
 }

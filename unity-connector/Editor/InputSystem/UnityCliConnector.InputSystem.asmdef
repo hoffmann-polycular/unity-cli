@@ -1,0 +1,19 @@
+{
+  "name": "UnityCliConnector.InputSystem.Editor",
+  "rootNamespace": "UnityCliConnector",
+  "references": ["UnityCliConnector.Editor", "Unity.InputSystem", "UnityEngine.UI"],
+  "includePlatforms": ["Editor"],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": ["UNITY_CLI_INPUT_SYSTEM", "UNITY_CLI_UGUI"],
+  "versionDefines": [
+    { "name": "com.unity.inputsystem", "expression": "1.7.0", "define": "UNITY_CLI_INPUT_SYSTEM" },
+    { "name": "com.unity.ugui", "expression": "1.0.0", "define": "UNITY_CLI_UGUI" },
+    { "name": "com.unity.modules.physics", "expression": "1.0.0", "define": "UNITY_CLI_PHYSICS" },
+    { "name": "com.unity.modules.physics2d", "expression": "1.0.0", "define": "UNITY_CLI_PHYSICS2D" }
+  ],
+  "noEngineReferences": false
+}
