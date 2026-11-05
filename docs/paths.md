@@ -302,7 +302,7 @@ unity-cli set Assets/Config/Game.asset:GameConfig.title "eLiza"
 unity-cli get Assets/Config/Game.asset:ScriptableObject.title   # base type works too
 ```
 
-The main asset is used when its type matches; otherwise the one sub-asset of that type in the file. `get` and `set` both work, including fan-out from stdin. `set` registers Undo and marks the asset dirty, like a write to a prefab asset — it reaches disk with the next save (*File > Save Project*).
+The main asset is used when its type matches; otherwise the one sub-asset of that type in the file. `get` and `set` both work, including fan-out from stdin. `set` registers Undo and saves the asset file right away, as it does for a prefab asset.
 
 ### Prefab stages
 

@@ -274,7 +274,7 @@ unity-cli set <path> [<value>]
 - `<value>` — scalar literal, space-separated vector, path (for references), whole list/array (see below), or `null`/`none` to clear. Read from stdin if omitted.
 - Creates a prefab override implicitly when writing to a prefab instance — same as typing in the Inspector.
 - For importer properties (`Assets/Foo.png:Importer.x`), writes the `.meta` file and Unity re-imports automatically.
-- For ScriptableObjects and other non-prefab assets (`Assets/Config/Game.asset:GameConfig.title`), registers Undo and marks the asset dirty; it reaches disk with the next save. See [paths.md](paths.md#scriptableobjects-and-other-assets).
+- Writes to anything that lives in an asset file — prefab asset contents (`Assets/Enemy.prefab//Weapon:Rigidbody.mass`), ScriptableObjects and other non-prefab assets (`Assets/Config/Game.asset:GameConfig.title`, see [paths.md](paths.md#scriptableobjects-and-other-assets)) — are saved to disk immediately, still undoable. Scene objects stay unsaved until `scene save`; an open prefab stage until `prefab close`.
 
 **Lists and arrays (whole-value set):**
 

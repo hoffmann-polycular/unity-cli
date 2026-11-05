@@ -110,7 +110,11 @@ namespace UnityCliConnector.Tools
 
 			// Non-GameObject asset backend (e.g. Assets/Config.asset:GameConfig.title).
 			if (PathResolver.IsAssetObjectTarget(parsed))
-				return SetOnAssetObject(parsed, rawValue);
+			{
+				var assetRes = SetOnAssetObject(parsed, rawValue);
+				SaveAssetFiles(new[] { AssetDatabase.LoadMainAssetAtPath(parsed.AssetPath) });
+				return assetRes;
+			}
 
 			if (!parsed.Component.IsPresent)
 				return new ErrorResponse("set requires a component — add ':TypeName' to the path.");
@@ -214,6 +218,7 @@ namespace UnityCliConnector.Tools
 			}
 
 			Undo.CollapseUndoOperations(undoGroup);
+			SaveAssetFiles(targets);
 
 			if (applied.Count == 0)
 				return new ErrorResponse(
@@ -298,6 +303,7 @@ namespace UnityCliConnector.Tools
 			var applied = new List<object>();
 			var errors = new List<string>();
 			var totalTargets = 0;
+			var touched = new List<UnityEngine.Object>();
 
 			var undoGroup = Undo.GetCurrentGroup();
 			Undo.IncrementCurrentGroup();
@@ -339,6 +345,8 @@ namespace UnityCliConnector.Tools
 					{
 						totalTargets++;
 						var setRes = isImporter ? SetOnImporter(parsed, rawValue) : SetOnAssetObject(parsed, rawValue);
+						if (!isImporter)
+							touched.Add(AssetDatabase.LoadMainAssetAtPath(parsed.AssetPath));
 						if (setRes is SuccessResponse impSr && impSr.data is Dictionary<string, object> impDict)
 							applied.Add(impDict);
 						else if (setRes is ErrorResponse impEr)
@@ -368,6 +376,7 @@ namespace UnityCliConnector.Tools
 					{
 						totalTargets++;
 						ApplyToOne(go, parsed, rawValue, applied, errors);
+						touched.Add(go);
 					}
 				}
 
@@ -378,6 +387,7 @@ namespace UnityCliConnector.Tools
 			}
 
 			Undo.CollapseUndoOperations(undoGroup);
+			SaveAssetFiles(touched);
 
 			if (applied.Count == 0)
 				return new ErrorResponse(
@@ -522,9 +532,8 @@ namespace UnityCliConnector.Tools
 				});
 		}
 
-		// Writes a serialized field of a non-GameObject asset. Like a write to a
-		// prefab asset it is undoable and marks the asset dirty; it reaches
-		// disk with the next save (File > Save Project, AssetDatabase.SaveAssets).
+		// Writes a serialized field of a non-GameObject asset; the caller saves
+		// it with SaveAssetFiles once the whole batch is written.
 		private static object SetOnAssetObject(ParsedPath parsed, JToken rawValue)
 		{
 			if (parsed.Properties == null || parsed.Properties.Count == 0)
@@ -560,6 +569,26 @@ namespace UnityCliConnector.Tools
 					["oldValue"] = oldValue,
 					["newValue"] = newValue,
 				});
+		}
+
+		/// <summary>
+		/// Writes the asset files behind the objects a set touched — prefab
+		/// asset contents, ScriptableObjects, materials. Unlike a scene, an asset
+		/// has no save step of its own in unity-cli, so a write left dirty would
+		/// silently miss disk. Scene objects (and an open prefab stage, which is
+		/// a scene) are not persistent and keep waiting for 'scene save' /
+		/// 'prefab close'.
+		/// </summary>
+		private static void SaveAssetFiles(IEnumerable<UnityEngine.Object> touched)
+		{
+			var saved = new HashSet<string>();
+			foreach (var obj in touched)
+			{
+				if (obj == null || !EditorUtility.IsPersistent(obj)) continue;
+				var assetPath = AssetDatabase.GetAssetPath(obj);
+				if (string.IsNullOrEmpty(assetPath) || !saved.Add(assetPath)) continue;
+				AssetDatabase.SaveAssetIfDirty(AssetDatabase.GUIDFromAssetPath(assetPath));
+			}
 		}
 
 		private static object SetProjectSettings(ParsedPath parsed, JToken rawValue)

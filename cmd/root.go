@@ -1147,8 +1147,13 @@ Path (v3):
   or be a 'ProjectSettings/Group.prop' path. Selection-anchored paths
   (bare, ./, ../) implicitly fan out across multi-selection.
   A ScriptableObject (or other non-prefab asset) takes its type as the
-  component: Assets/Game.asset:GameConfig.title. The write is undoable and
-  marks the asset dirty; it reaches disk with the next save.
+  component: Assets/Game.asset:GameConfig.title.
+
+Saving:
+  Writes to anything stored in an asset file (prefab asset contents,
+  ScriptableObjects, materials) are saved to disk immediately and remain
+  undoable. Scene objects stay unsaved until 'scene save'; an open prefab
+  stage until 'prefab close'.
 
 Value (type-aware, permissive):
   Scalars       42       3.14       true       "hello"
