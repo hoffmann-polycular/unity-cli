@@ -49,6 +49,41 @@ func TestEditorCmd_PlayWait(t *testing.T) {
 	}
 }
 
+func TestEditorCmd_PlayFocusDefaultsToEditorSetting(t *testing.T) {
+	send, params := mockSend("manage_editor", t)
+	resolve := func() (*client.Instance, error) { return nil, nil }
+	if _, err := editorCmd([]string{"play"}, send, resolve); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := (*params)["play_focus"]; ok {
+		t.Errorf("expected no play_focus without a flag, got %v", (*params)["play_focus"])
+	}
+}
+
+func TestEditorCmd_PlayFocusFlags(t *testing.T) {
+	for _, focus := range []string{"focused", "unfocused", "maximized"} {
+		send, params := mockSend("manage_editor", t)
+		resolve := func() (*client.Instance, error) { return nil, nil }
+		if _, err := editorCmd([]string{"play", "--" + focus}, send, resolve); err != nil {
+			t.Fatalf("--%s: unexpected error: %v", focus, err)
+		}
+		if (*params)["play_focus"] != focus {
+			t.Errorf("--%s: expected play_focus=%s, got %v", focus, focus, (*params)["play_focus"])
+		}
+	}
+}
+
+func TestEditorCmd_PlayFocusFlagsMutuallyExclusive(t *testing.T) {
+	send := func(string, interface{}) (*client.CommandResponse, error) {
+		t.Fatal("send must not be called when focus flags conflict")
+		return nil, nil
+	}
+	resolve := func() (*client.Instance, error) { return nil, nil }
+	if _, err := editorCmd([]string{"play", "--unfocused", "--maximized"}, send, resolve); err == nil {
+		t.Fatal("expected an error for conflicting focus flags")
+	}
+}
+
 // A domain reload on play tears down the connection; the connector's response
 // never arrives. The CLI should poll the heartbeat back through the reload and
 // succeed once the editor reports play mode.

@@ -23,10 +23,23 @@ func editorCmd(args []string, send sendFn, resolve instanceResolver) (*client.Co
 	switch action {
 	case "play":
 		_, wait := flags["wait"]
-		resp, err := send("manage_editor", map[string]interface{}{
+		params := map[string]interface{}{
 			"action":              "play",
 			"wait_for_completion": wait,
-		})
+		}
+		var focus []string
+		for _, f := range []string{"focused", "unfocused", "maximized"} {
+			if _, ok := flags[f]; ok {
+				focus = append(focus, f)
+			}
+		}
+		if len(focus) > 1 {
+			return nil, fmt.Errorf("--focused, --unfocused and --maximized are mutually exclusive")
+		}
+		if len(focus) == 1 {
+			params["play_focus"] = focus[0]
+		}
+		resp, err := send("manage_editor", params)
 		if !wait {
 			return resp, err
 		}

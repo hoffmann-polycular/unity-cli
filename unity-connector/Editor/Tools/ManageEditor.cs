@@ -27,6 +27,9 @@ namespace UnityCliConnector.Tools
             [ToolParameter("Wait for action to complete before responding")]
             public bool WaitForCompletion { get; set; }
 
+            [ToolParameter("play only: override the Game view's Enter Play Mode behavior for this entry: focused, unfocused, maximized. Omit to use the Editor's setting.")]
+            public string PlayFocus { get; set; }
+
             [ToolParameter("Tool name (required for set_active_tool action)")]
             public string ToolName { get; set; }
 
@@ -55,13 +58,23 @@ namespace UnityCliConnector.Tools
                 case "play":
                     if (!EditorApplication.isPlaying)
                     {
+                        string playFocus = p.Get("play_focus");
+                        string focusNote = "";
+                        if (!string.IsNullOrEmpty(playFocus))
+                        {
+                            string focusError = PlayModeFocusOverride.Apply(playFocus, out bool applied);
+                            if (focusError != null)
+                                return new ErrorResponse(focusError);
+                            if (!applied)
+                                focusNote = $" No Game view was open, so '{playFocus}' had no effect.";
+                        }
                         EditorApplication.isPlaying = true;
                         if (waitForCompletion)
                         {
                             await WaitForPlayModeStateAsync(PlayModeStateChange.EnteredPlayMode, TimeSpan.FromSeconds(PlayModeTimeoutSeconds));
-                            return new SuccessResponse("Entered play mode (confirmed).");
+                            return new SuccessResponse("Entered play mode (confirmed)." + focusNote);
                         }
-                        return new SuccessResponse("Entered play mode.");
+                        return new SuccessResponse("Entered play mode." + focusNote);
                     }
                     return new SuccessResponse("Already in play mode.");
 

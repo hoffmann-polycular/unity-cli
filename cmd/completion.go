@@ -304,7 +304,7 @@ var subcommandFlags = map[string][]string{
 	"prefab unpack":      {"--completely"},
 	"prefab close":       {"--discard"},
 	"editor refresh":     {"--compile"},
-	"editor play":        {"--wait"},
+	"editor play":        {"--wait", "--unfocused", "--focused", "--maximized"},
 	"profiler hierarchy": {"--depth", "--root", "--frames", "--from", "--to", "--parent", "--min", "--sort", "--max", "--frame", "--thread"},
 	"input tap":          {"--button", "--hold-frames", "--camera"},
 	"input drag":         {"--button", "--steps", "--camera"},

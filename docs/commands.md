@@ -903,7 +903,7 @@ unity-cli editor <play|stop|pause|refresh> [options]
 ```
 
 **Subcommands:**
-- `play [--wait]` — enter play mode. `--wait` blocks until fully entered.
+- `play [--wait] [--unfocused|--focused|--maximized]` — enter play mode. `--wait` blocks until fully entered. Without a focus flag the Game view's own Enter Play Mode setting (Play Focused / Play Maximized / Play Unfocused) applies; a flag overrides it for this one entry and the Editor's setting is restored afterwards. The flags are mutually exclusive. Agents should prefer `--unfocused` so the Game view doesn't take keyboard focus from the user.
 - `stop` — exit play mode.
 - `pause` — toggle pause/resume (play mode only).
 - `refresh` — refresh AssetDatabase.
@@ -913,6 +913,7 @@ unity-cli editor <play|stop|pause|refresh> [options]
 **Examples:**
 ```bash
 unity-cli editor play --wait
+unity-cli editor play --wait --unfocused
 unity-cli editor stop
 unity-cli editor refresh --compile
 unity-cli editor refresh --force

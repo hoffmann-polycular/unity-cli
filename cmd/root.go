@@ -486,7 +486,7 @@ Assets
   reimport <path> [--recursive]   re-run the import pipeline
 
 Editor
-  editor play|stop|pause|refresh [--wait|--compile]
+  editor play|stop|pause|refresh [--wait|--compile|--unfocused|--focused|--maximized]
   console [--lines N] [--type ...] [--stacktrace ...] [--clear]
   menu "<path>"               execute a Unity menu item
   screenshot [--view game|scene|<camera-path>] [--supersize N] [-o file]
@@ -549,9 +549,16 @@ func printTopicHelp(topic string) bool {
 		fmt.Print(`Usage: unity-cli editor <play|stop|pause|refresh> [options]
 
 Subcommands:
-  play [--wait]       Enter play mode
+  play [--wait] [--unfocused|--focused|--maximized]
+                      Enter play mode
                       --wait blocks until Unity fully enters play mode.
                       Without --wait, returns immediately after requesting.
+                      Without a focus flag, the Game view's own setting
+                      (Play Focused / Play Maximized / Play Unfocused)
+                      applies. A focus flag overrides it for this entry
+                      only; the Editor's setting is restored afterwards.
+                      Agents: prefer --unfocused, so the Game view doesn't
+                      take keyboard focus from the user.
   stop                Exit play mode. No effect if not playing.
   pause               Toggle pause. Only works during play mode.
   refresh             Refresh AssetDatabase (reimport changed assets).
@@ -561,6 +568,7 @@ Subcommands:
 
 Examples:
   unity-cli editor play --wait
+  unity-cli editor play --wait --unfocused
   unity-cli editor stop
   unity-cli editor refresh --compile
   unity-cli editor refresh --force

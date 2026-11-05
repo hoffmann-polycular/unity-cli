@@ -208,6 +208,7 @@ unity-cli find --component Light --json | jq -r '.[] | select(.name | test("^Sun
 - **Duplicate sibling names**: use `[0]`, `[1]` to disambiguate — e.g. `/World/Enemy[1]`.
 - **Prefab stage active**: after `prefab open`, all paths are relative to the prefab root. Remember to `prefab close` when done.
 - **Asset vs. hierarchy path**: `Assets/...` addresses the asset database; `/World/...` or bare names address the scene hierarchy. Don't mix them.
+- **Plain `editor play` taking the user's focus**: without a flag it follows the Game view's setting, which may be Play Focused or Play Maximized — that grabs keyboard focus or hides the user's Editor layout while they work. Use `editor play --unfocused` unless the user asks otherwise; it overrides the setting for that one entry only.
 - **Editor not running**: check `unity-cli status` before a long batch operation. All commands fail immediately if the Editor isn't reachable.
 - **`exec` as a first resort**: it bypasses gating, Undo grouping, and fan-out. Exhaust the purpose-built commands and `unity-cli list` first.
 

@@ -151,8 +151,8 @@ unity-cli find --component Rigidbody --plain | unity-cli inspect :Rigidbody
 unity-cli get /Player:Transform.position
 unity-cli set /Player:Rigidbody.mass 15
 
-# Control play mode
-unity-cli editor play --wait
+# Control play mode (--unfocused/--focused/--maximized override the Game view's setting once)
+unity-cli editor play --wait --unfocused
 unity-cli editor stop
 
 # Run C# code directly
