@@ -124,6 +124,29 @@ namespace UnityCliConnector.InputSimulation
 			if (SessionState.GetInt(OriginalSettingsKey, 0) == 0)
 				SessionState.SetInt(OriginalSettingsKey, current.GetInstanceID());
 			InputSystem.settings = copy;
+			EnableDevicesDisabledInBackground();
+		}
+
+		/// <summary>
+		/// The real mouse and keyboard were most likely disabled when the Editor
+		/// lost focus to the terminal. Only the Input System's focus-gain handler
+		/// re-enables them, and IgnoreFocus makes it return early, so without this
+		/// they stay dead for the user until the settings are restored.
+		/// <c>InputDevice.enabled</c> reports true for them in editor updates, hence
+		/// the internal flag.
+		/// </summary>
+		static void EnableDevicesDisabledInBackground()
+		{
+			var disabledWhileInBackground = typeof(InputDevice).GetProperty("disabledWhileInBackground", AnyInstance);
+			if (disabledWhileInBackground == null)
+			{
+				Debug.LogWarning("[UnityCliConnector] InputDevice.disabledWhileInBackground not found in this Input System version; "
+					+ "real devices disabled while the Editor was unfocused may stay unresponsive until 'unity-cli input reset'.");
+				return;
+			}
+			foreach (var device in InputSystem.devices.ToList())
+				if (disabledWhileInBackground.GetValue(device) is bool disabled && disabled)
+					InputSystem.EnableDevice(device);
 		}
 
 		/// <summary>
