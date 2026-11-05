@@ -16,6 +16,7 @@ Paths are the universal address for everything unity-cli touches: GameObjects, c
 - [Reference resolution](#reference-resolution)
 - [`:GameObject` pseudo-component](#gameobject-pseudo-component)
 - [`:Importer` pseudo-component](#importer-pseudo-component)
+- [ScriptableObjects and other assets](#scriptableobjects-and-other-assets)
 - [Sub-asset access (`//`)](#sub-asset-access-)
 - [Shell safety](#shell-safety)
 
@@ -289,6 +290,19 @@ Assets/Prefabs/Enemy.prefab//Weapon:MeshRenderer.material    # property on that 
 ```
 
 Sub-asset paths do not have importers — `Assets/Foo.prefab//Child:Importer` is rejected. Use `Assets/Foo.prefab:Importer` (without `//`) to inspect the prefab's importer.
+
+## ScriptableObjects and other assets
+
+An asset that is not a prefab — a ScriptableObject, a material, … — is addressed by naming its type (or any base type) as the component:
+
+```bash
+unity-cli get Assets/Config/Game.asset:GameConfig.title
+unity-cli get Assets/Settings/Persistent.asset:PersistentAssets.scenes[7].Path
+unity-cli set Assets/Config/Game.asset:GameConfig.title "eLiza"
+unity-cli get Assets/Config/Game.asset:ScriptableObject.title   # base type works too
+```
+
+The main asset is used when its type matches; otherwise the one sub-asset of that type in the file. `get` and `set` both work, including fan-out from stdin. `set` registers Undo and marks the asset dirty, like a write to a prefab asset — it reaches disk with the next save (*File > Save Project*).
 
 ### Prefab stages
 

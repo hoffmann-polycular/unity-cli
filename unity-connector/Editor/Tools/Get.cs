@@ -96,6 +96,11 @@ namespace UnityCliConnector.Tools
 			if (parsed.Kind == PathKind.Asset && PathResolver.IsImporterComponent(parsed.Component))
 				return GetFromImporter(parsed, format);
 
+			// Non-GameObject asset (ScriptableObject, material, ...):
+			// Assets/Config.asset:GameConfig.title
+			if (PathResolver.IsAssetObjectTarget(parsed))
+				return GetFromAssetObject(parsed, format);
+
 			if (!parsed.Component.IsPresent)
 				return new ErrorResponse("get requires a component — add ':TypeName' to the path.");
 			if (parsed.Properties == null || parsed.Properties.Count == 0)
@@ -210,11 +215,12 @@ namespace UnityCliConnector.Tools
 					continue;
 				}
 
-				// Asset importer per-path handling.
-				if (parsed.Kind == PathKind.Asset && PathResolver.IsImporterComponent(parsed.Component))
+				// Asset importer / non-GameObject asset per-path handling.
+				var isImporter = parsed.Kind == PathKind.Asset && PathResolver.IsImporterComponent(parsed.Component);
+				if (isImporter || PathResolver.IsAssetObjectTarget(parsed))
 				{
 					totalCount++;
-					var imp = GetFromImporter(parsed, "json");
+					var imp = isImporter ? GetFromImporter(parsed, "json") : GetFromAssetObject(parsed, "json");
 					if (imp is SuccessResponse impSr && impSr.data is Dictionary<string, object> impDict)
 					{
 						entries.Add(impDict);
@@ -453,6 +459,35 @@ namespace UnityCliConnector.Tools
 				{
 					["path"] = parsed.AssetPath,
 					["component"] = importer.GetType().Name,
+					["property"] = PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count),
+					["type"] = current.propertyType.ToString(),
+					["value"] = value,
+				});
+			}
+			return new SuccessResponse("", FormatPipeFriendly(value));
+		}
+
+		private static object GetFromAssetObject(ParsedPath parsed, string format)
+		{
+			if (parsed.Properties == null || parsed.Properties.Count == 0)
+				return new ErrorResponse("get requires a property — add '.propertyName' to the path.");
+
+			var objRes = PathResolver.ResolveAssetObject(parsed);
+			if (!objRes.IsSuccess) return ErrorResponse.FromResult(objRes);
+			var target = objRes.Value;
+
+			using var so = new SerializedObject(target);
+			var propRes = PathResolver.FindSerializedProperty(so, parsed.Properties, target.GetType().Name);
+			if (!propRes.IsSuccess) return ErrorResponse.FromResult(propRes);
+			var current = propRes.Value;
+
+			var value = SerializedPropertyReader.Read(current);
+			if (format == "json")
+			{
+				return new SuccessResponse("", new Dictionary<string, object>
+				{
+					["path"] = parsed.AssetPath,
+					["component"] = target.GetType().Name,
 					["property"] = PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count),
 					["type"] = current.propertyType.ToString(),
 					["value"] = value,

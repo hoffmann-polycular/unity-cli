@@ -1107,6 +1107,8 @@ Path (v3):
   /World/Enemy[1]:Rigidbody.mass     Disambiguate duplicate siblings
   #14352:Transform.localScale        Resolve by instance ID
   ProjectSettings/Physics.gravity    Project setting
+  Assets/Game.asset:GameConfig.title ScriptableObject / non-prefab asset
+                                     field (its type or a base type)
 
 Options:
   --source                    Read the prefab source value instead of the
@@ -1142,6 +1144,9 @@ Path (v3):
   Same grammar as 'get' / 'inspect'. Must include :Component.property,
   or be a 'ProjectSettings/Group.prop' path. Selection-anchored paths
   (bare, ./, ../) implicitly fan out across multi-selection.
+  A ScriptableObject (or other non-prefab asset) takes its type as the
+  component: Assets/Game.asset:GameConfig.title. The write is undoable and
+  marks the asset dirty; it reaches disk with the next save.
 
 Value (type-aware, permissive):
   Scalars       42       3.14       true       "hello"
@@ -1172,6 +1177,7 @@ Examples:
   unity-cli set /World/Enemy:AIScript.target /World/Player
   unity-cli set /World/Enemy:AIScript.target null
   unity-cli set ProjectSettings/Physics.gravity "0 -20 0"
+  unity-cli set Assets/Game.asset:GameConfig.title "eLiza"
   unity-cli get /World/A:Transform.position | unity-cli set /World/B:Transform.position
   unity-cli set /World/Safe:KnobSequence.correctSequence "[2,0,3,1]"
   unity-cli find --component Knob --plain | unity-cli set /World/Safe:KnobSequence.knobs

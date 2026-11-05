@@ -510,6 +510,87 @@ namespace UnityCliConnector
 			return Result<AssetImporter>.Success(importer);
 		}
 
+		/// <summary>
+		/// Whether an asset path addresses the serialized fields of an asset that
+		/// is not a GameObject — a ScriptableObject, material, … — e.g.
+		/// `Assets/Config.asset:GameConfig.title`. Prefabs keep resolving to
+		/// GameObjects and importers go through <see cref="ResolveAssetImporter"/>.
+		/// </summary>
+		public static bool IsAssetObjectTarget(ParsedPath parsed)
+		{
+			if (parsed.Kind != PathKind.Asset || !parsed.Component.IsPresent || IsImporterComponent(parsed.Component))
+				return false;
+			if (string.IsNullOrEmpty(parsed.AssetPath) || (parsed.Segments != null && parsed.Segments.Count > 0))
+				return false;
+			var mainType = AssetDatabase.GetMainAssetTypeAtPath(parsed.AssetPath);
+			return mainType != null && mainType != typeof(GameObject);
+		}
+
+		/// <summary>
+		/// The object inside the asset file whose type (or a base type) is named
+		/// by the path's component: the main asset when it matches, otherwise
+		/// the one matching sub-asset.
+		/// </summary>
+		public static Result<UnityEngine.Object> ResolveAssetObject(ParsedPath parsed)
+		{
+			var typeName = parsed.Component.TypeName;
+			var main = AssetDatabase.LoadMainAssetAtPath(parsed.AssetPath);
+			if (main == null)
+				return Result<UnityEngine.Object>.Error($"Asset not found: '{parsed.AssetPath}'.", ErrorKind.NotFound);
+			if (IsOfTypeNamed(main, typeName))
+				return Result<UnityEngine.Object>.Success(main);
+
+			var all = AssetDatabase.LoadAllAssetsAtPath(parsed.AssetPath);
+			var matches = new List<UnityEngine.Object>();
+			foreach (var o in all)
+				if (o != null && IsOfTypeNamed(o, typeName))
+					matches.Add(o);
+
+			if (matches.Count == 1)
+				return Result<UnityEngine.Object>.Success(matches[0]);
+			if (matches.Count > 1)
+				return Result<UnityEngine.Object>.Error(
+					$"Asset '{parsed.AssetPath}' holds {matches.Count} {typeName} objects; address the main asset by its own type.",
+					ErrorKind.Usage);
+
+			var held = new List<string>();
+			foreach (var o in all)
+				if (o != null && !held.Contains(o.GetType().Name))
+					held.Add(o.GetType().Name);
+			return Result<UnityEngine.Object>.Error(
+				$"Asset '{parsed.AssetPath}' has no {typeName}; it holds: {string.Join(", ", held)}.",
+				ErrorKind.NotFound);
+		}
+
+		static bool IsOfTypeNamed(UnityEngine.Object obj, string typeName)
+		{
+			for (var t = obj.GetType(); t != null && t != typeof(UnityEngine.Object); t = t.BaseType)
+				if (t.Name.Equals(typeName, System.StringComparison.OrdinalIgnoreCase))
+					return true;
+			return false;
+		}
+
+		/// <summary>
+		/// Walks a user-written property path (first segment, then relative
+		/// segments) through <paramref name="so"/>, naming <paramref name="owner"/>
+		/// in the not-found error.
+		/// </summary>
+		public static Result<SerializedProperty> FindSerializedProperty(SerializedObject so, List<string> properties, string owner)
+		{
+			var current = FindPropertyByUserName(so, properties[0]);
+			if (current == null)
+				return Result<SerializedProperty>.Error($"No property '{properties[0]}' on {owner}.", ErrorKind.NotFound);
+			for (var i = 1; i < properties.Count; i++)
+			{
+				var next = FindRelativeByUserName(current, properties[i]);
+				if (next == null)
+					return Result<SerializedProperty>.Error(
+						$"No sub-property '{properties[i]}' under '{JoinPropertyPath(properties, i)}'.", ErrorKind.NotFound);
+				current = next;
+			}
+			return Result<SerializedProperty>.Success(current);
+		}
+
 		// ---- component / property resolution (unchanged) ----
 
 		public static Result<Component> ResolveComponent(GameObject go, ComponentRef compRef)

@@ -223,6 +223,9 @@ unity-cli get /World/Player:GameObject.tag
 unity-cli get Assets/Foo.png:TextureImporter.maxTextureSize
 unity-cli get Assets/Hero.fbx:Importer.animationType
 
+# ScriptableObject (or other non-prefab asset): name its type
+unity-cli get Assets/Config/Game.asset:GameConfig.title
+
 # Follow a reference
 unity-cli get /World/Enemy:AIScript.target | unity-cli inspect
 
@@ -271,6 +274,7 @@ unity-cli set <path> [<value>]
 - `<value>` — scalar literal, space-separated vector, path (for references), whole list/array (see below), or `null`/`none` to clear. Read from stdin if omitted.
 - Creates a prefab override implicitly when writing to a prefab instance — same as typing in the Inspector.
 - For importer properties (`Assets/Foo.png:Importer.x`), writes the `.meta` file and Unity re-imports automatically.
+- For ScriptableObjects and other non-prefab assets (`Assets/Config/Game.asset:GameConfig.title`), registers Undo and marks the asset dirty; it reaches disk with the next save. See [paths.md](paths.md#scriptableobjects-and-other-assets).
 
 **Lists and arrays (whole-value set):**
 
@@ -332,6 +336,9 @@ unity-cli set :GameObject.isStatic true    # fan-out: all selected objects
 # Asset importer
 unity-cli set Assets/Foo.png:TextureImporter.maxTextureSize 1024
 unity-cli set Assets/Hero.fbx:Importer.animationType Generic
+
+# ScriptableObject field
+unity-cli set Assets/Config/Game.asset:GameConfig.title "eLiza"
 
 # Batch: halve all Rigidbody masses
 unity-cli find --component Rigidbody --plain | while read p; do

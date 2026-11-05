@@ -59,6 +59,7 @@ Paths are the core abstraction shared by every command.
 | Asset | `Assets/Prefabs/Enemy.prefab` | Asset database path |
 | Sub-object | `Assets/Prefabs/Enemy.prefab//Weapon` | Object inside a prefab asset |
 | Importer | `Assets/Foo.png:Importer.maxTextureSize` | Asset importer property |
+| Asset object | `Assets/Game.asset:GameConfig.title` | ScriptableObject / material field (type or base type as component) |
 | Project setting | `ProjectSettings/Physics.gravity` | Project-level settings |
 | Instance ID | `#14352` | Object pinned by instance ID |
 

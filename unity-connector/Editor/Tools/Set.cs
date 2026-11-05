@@ -108,6 +108,10 @@ namespace UnityCliConnector.Tools
 			if (parsed.Kind == PathKind.Asset && PathResolver.IsImporterComponent(parsed.Component))
 				return SetOnImporter(parsed, rawValue);
 
+			// Non-GameObject asset backend (e.g. Assets/Config.asset:GameConfig.title).
+			if (PathResolver.IsAssetObjectTarget(parsed))
+				return SetOnAssetObject(parsed, rawValue);
+
 			if (!parsed.Component.IsPresent)
 				return new ErrorResponse("set requires a component — add ':TypeName' to the path.");
 			if (parsed.Properties == null || parsed.Properties.Count == 0)
@@ -330,10 +334,11 @@ namespace UnityCliConnector.Tools
 					// at the call site so per-path reimports coalesce into one pass.
 					// The Undo group still wraps property writes — reimport itself
 					// is not undoable, only the property revert.
-					if (parsed.Kind == PathKind.Asset && PathResolver.IsImporterComponent(parsed.Component))
+					var isImporter = parsed.Kind == PathKind.Asset && PathResolver.IsImporterComponent(parsed.Component);
+					if (isImporter || PathResolver.IsAssetObjectTarget(parsed))
 					{
 						totalTargets++;
-						var setRes = SetOnImporter(parsed, rawValue);
+						var setRes = isImporter ? SetOnImporter(parsed, rawValue) : SetOnAssetObject(parsed, rawValue);
 						if (setRes is SuccessResponse impSr && impSr.data is Dictionary<string, object> impDict)
 							applied.Add(impDict);
 						else if (setRes is ErrorResponse impEr)
@@ -512,6 +517,46 @@ namespace UnityCliConnector.Tools
 					["component"] = importer.GetType().Name,
 					["property"] = PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count),
 					["type"] = propertyType,
+					["oldValue"] = oldValue,
+					["newValue"] = newValue,
+				});
+		}
+
+		// Writes a serialized field of a non-GameObject asset. Like a write to a
+		// prefab asset it is undoable and marks the asset dirty; it reaches
+		// disk with the next save (File > Save Project, AssetDatabase.SaveAssets).
+		private static object SetOnAssetObject(ParsedPath parsed, JToken rawValue)
+		{
+			if (parsed.Properties == null || parsed.Properties.Count == 0)
+				return new ErrorResponse("set requires a property — add '.propertyName' to the path.");
+
+			var objRes = PathResolver.ResolveAssetObject(parsed);
+			if (!objRes.IsSuccess) return ErrorResponse.FromResult(objRes);
+			var target = objRes.Value;
+			var typeName = target.GetType().Name;
+			var propertyPath = PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count);
+
+			using var so = new SerializedObject(target);
+			var propRes = PathResolver.FindSerializedProperty(so, parsed.Properties, typeName);
+			if (!propRes.IsSuccess) return ErrorResponse.FromResult(propRes);
+			var current = propRes.Value;
+
+			var oldValue = SerializedPropertyReader.Read(current);
+			Undo.RecordObject(target, $"set {typeName}.{propertyPath}");
+			var writeResult = SerializedPropertyWriter.Write(current, rawValue);
+			if (!writeResult.IsSuccess) return ErrorResponse.FromResult(writeResult);
+			so.ApplyModifiedProperties();
+			EditorUtility.SetDirty(target);
+
+			var newValue = SerializedPropertyReader.Read(current);
+			return new SuccessResponse(
+				$"{parsed.AssetPath}:{typeName}.{propertyPath} = {Describe(newValue)}",
+				new Dictionary<string, object>
+				{
+					["path"] = parsed.AssetPath,
+					["component"] = typeName,
+					["property"] = propertyPath,
+					["type"] = current.propertyType.ToString(),
 					["oldValue"] = oldValue,
 					["newValue"] = newValue,
 				});
