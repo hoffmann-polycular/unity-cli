@@ -35,6 +35,7 @@ using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
 using UnityCliConnector.InputSimulation;
+using TouchPhase = UnityEngine.InputSystem.TouchPhase;
 
 namespace UnityCliConnector.Tools
 {
@@ -73,6 +74,9 @@ namespace UnityCliConnector.Tools
 
 			[ToolParameter("Camera that projects 3D/2D targets and pick raycasts. Default: Camera.main.")]
 			public string Camera { get; set; }
+
+			[ToolParameter("tap/drag/down/move/up with a finger on a virtual Touchscreen instead of the mouse (EnhancedTouch, Touchscreen.current, touch UI).")]
+			public bool Touch { get; set; }
 		}
 
 		static readonly Regex s_PixelTarget = new Regex(@"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$");
@@ -99,6 +103,12 @@ namespace UnityCliConnector.Tools
 			if (notReady != null)
 				return new ErrorResponse(notReady);
 
+			var touch = p.GetBool("touch");
+			if (touch && action != "tap" && action != "drag" && action != "down" && action != "move" && action != "up")
+				return ErrorResponse.Usage($"--touch applies to tap, drag, down, move and up, not {action}.");
+			if (touch && p.Get("button") != null)
+				return ErrorResponse.Usage("--button is a mouse option; a touch has no buttons.");
+
 			var cameraRes = ResolveCamera(p.Get("camera"));
 			if (!cameraRes.IsSuccess)
 				return ErrorResponse.FromResult(cameraRes);
@@ -108,11 +118,11 @@ namespace UnityCliConnector.Tools
 			{
 				switch (action)
 				{
-					case "tap": return await Tap(args, p, camera);
-					case "drag": return await Drag(args, p, camera);
-					case "down": return await Press(args, p, camera, true);
-					case "up": return await Press(args, p, camera, false);
-					case "move": return await Move(args, camera);
+					case "tap": return touch ? await TouchTap(args, p, camera) : await Tap(args, p, camera);
+					case "drag": return touch ? await TouchDrag(args, p, camera) : await Drag(args, p, camera);
+					case "down": return touch ? await TouchPress(args, camera, true) : await Press(args, p, camera, true);
+					case "up": return touch ? await TouchPress(args, camera, false) : await Press(args, p, camera, false);
+					case "move": return touch ? await TouchMove(args, camera) : await Move(args, camera);
 					case "scroll": return await Scroll(args, camera);
 					case "key": return await KeyCombo(args, p);
 					case "type": return await TypeText(args);
@@ -195,6 +205,72 @@ namespace UnityCliConnector.Tools
 			var posRes = ResolveTarget(args[0], camera);
 			if (!posRes.IsSuccess) return ErrorResponse.FromResult(posRes);
 			await SimulatedInput.QueueMouse(posRes.Value, null, false, Vector2.zero, 1);
+			return new SuccessResponse("", Describe(posRes.Value, camera));
+		}
+
+		static async Task<object> TouchTap(List<string> args, ToolParams p, Camera camera)
+		{
+			if (args.Count != 1) return ErrorResponse.Usage("Usage: input tap <x,y | path> --touch");
+			var posRes = ResolveTarget(args[0], camera);
+			if (!posRes.IsSuccess) return ErrorResponse.FromResult(posRes);
+
+			var pos = posRes.Value;
+			var report = Describe(pos, camera);
+			await SimulatedInput.QueueTouch(pos, TouchPhase.Began, HoldFrames(p));
+			await SimulatedInput.QueueTouch(pos, TouchPhase.Ended, 1);
+			return new SuccessResponse("", report);
+		}
+
+		static async Task<object> TouchDrag(List<string> args, ToolParams p, Camera camera)
+		{
+			if (args.Count != 2) return ErrorResponse.Usage("Usage: input drag <from> <to> --touch");
+			var fromRes = ResolveTarget(args[0], camera);
+			if (!fromRes.IsSuccess) return ErrorResponse.FromResult(fromRes);
+			var toRes = ResolveTarget(args[1], camera);
+			if (!toRes.IsSuccess) return ErrorResponse.FromResult(toRes);
+
+			var from = fromRes.Value;
+			var to = toRes.Value;
+			var steps = Math.Max(1, p.GetInt("steps", 10).Value);
+			var fromReport = Describe(from, camera);
+			await SimulatedInput.QueueTouch(from, TouchPhase.Began, 1);
+			for (var i = 1; i <= steps; i++)
+				await SimulatedInput.QueueTouch(Vector2.Lerp(from, to, (float)i / steps), TouchPhase.Moved, 1);
+			var toReport = Describe(to, camera);
+			await SimulatedInput.QueueTouch(to, TouchPhase.Ended, 1);
+			return new SuccessResponse("", fromReport + "\n" + toReport);
+		}
+
+		/// <summary>down puts a finger on <paramref name="args"/>[0]; up lifts the held one, optionally after moving it there.</summary>
+		static async Task<object> TouchPress(List<string> args, Camera camera, bool pressed)
+		{
+			var held = SimulatedInput.ActiveTouchPosition;
+			if (pressed && args.Count != 1) return ErrorResponse.Usage("Usage: input down <x,y | path> --touch");
+			if (!pressed && args.Count > 1) return ErrorResponse.Usage("Usage: input up [<x,y | path>] --touch");
+			if (!pressed && held == null) return ErrorResponse.Usage("No touch is held; start one with 'input down <target> --touch'.");
+
+			var pos = held ?? Vector2.zero;
+			if (args.Count == 1)
+			{
+				var posRes = ResolveTarget(args[0], camera);
+				if (!posRes.IsSuccess) return ErrorResponse.FromResult(posRes);
+				pos = posRes.Value;
+			}
+			if (!pressed && pos != held.Value)
+				await SimulatedInput.QueueTouch(pos, TouchPhase.Moved, 1);
+			var report = Describe(pos, camera);
+			await SimulatedInput.QueueTouch(pos, pressed ? TouchPhase.Began : TouchPhase.Ended, 1);
+			return new SuccessResponse("", report);
+		}
+
+		static async Task<object> TouchMove(List<string> args, Camera camera)
+		{
+			if (args.Count != 1) return ErrorResponse.Usage("Usage: input move <x,y | path> --touch");
+			if (SimulatedInput.ActiveTouchPosition == null)
+				return ErrorResponse.Usage("A finger cannot hover; put one down first with 'input down <target> --touch'.");
+			var posRes = ResolveTarget(args[0], camera);
+			if (!posRes.IsSuccess) return ErrorResponse.FromResult(posRes);
+			await SimulatedInput.QueueTouch(posRes.Value, TouchPhase.Moved, 1);
 			return new SuccessResponse("", Describe(posRes.Value, camera));
 		}
 

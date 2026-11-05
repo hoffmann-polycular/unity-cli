@@ -31,6 +31,7 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
+using TouchPhase = UnityEngine.InputSystem.TouchPhase;
 
 namespace UnityCliConnector.InputSimulation
 {
@@ -49,6 +50,7 @@ namespace UnityCliConnector.InputSimulation
 	{
 		const string MouseName = "unity-cli Mouse";
 		const string KeyboardName = "unity-cli Keyboard";
+		const string TouchscreenName = "unity-cli Touchscreen";
 		// SessionState outlives the domain reload a mid-play recompile causes.
 		const string OriginalSettingsKey = "UnityCli.Input.OriginalSettingsId";
 		const double UpdateTimeoutSeconds = 5;
@@ -56,6 +58,12 @@ namespace UnityCliConnector.InputSimulation
 		static Mouse s_Mouse;
 		static Keyboard s_Keyboard;
 		static MouseState s_MouseState;
+		// Added only on the first --touch: some games switch to touch controls
+		// as soon as a Touchscreen exists.
+		static Touchscreen s_Touchscreen;
+		static int s_TouchId;
+		static bool s_TouchActive;
+		static Vector2 s_TouchPosition;
 
 		[InitializeOnLoadMethod]
 		static void Init()
@@ -95,6 +103,9 @@ namespace UnityCliConnector.InputSimulation
 
 		/// <summary>Last queued pointer position, in Unity screen space (bottom-left origin).</summary>
 		public static Vector2 MousePosition => s_MouseState.position;
+
+		/// <summary>Position of the touch currently held, or null when no finger is down.</summary>
+		public static Vector2? ActiveTouchPosition => s_TouchActive ? s_TouchPosition : (Vector2?)null;
 
 		static void EnsureSession()
 		{
@@ -163,6 +174,9 @@ namespace UnityCliConnector.InputSimulation
 			s_MouseState.scroll = Vector2.zero;
 			InputSystem.QueueStateEvent(s_Mouse, s_MouseState);
 			InputSystem.QueueStateEvent(s_Keyboard, new KeyboardState());
+			if (s_TouchActive && s_Touchscreen != null && s_Touchscreen.added)
+				QueueTouchState(TouchPhase.Canceled, s_TouchPosition);
+			s_TouchActive = false;
 			return frames > 0 ? WaitInputUpdates(frames) : Task.CompletedTask;
 		}
 
@@ -173,11 +187,13 @@ namespace UnityCliConnector.InputSimulation
 		/// </summary>
 		public static void Reset()
 		{
-			foreach (var device in InputSystem.devices.Where(d => d.name == MouseName || d.name == KeyboardName).ToList())
+			foreach (var device in InputSystem.devices.Where(d => d.name == MouseName || d.name == KeyboardName || d.name == TouchscreenName).ToList())
 				InputSystem.RemoveDevice(device);
 			s_Mouse = null;
 			s_Keyboard = null;
 			s_MouseState = default;
+			s_Touchscreen = null;
+			s_TouchActive = false;
 
 			var originalId = SessionState.GetInt(OriginalSettingsKey, 0);
 			if (originalId == 0)
@@ -210,6 +226,40 @@ namespace UnityCliConnector.InputSimulation
 			state.scroll = Vector2.zero;
 			s_MouseState = state;
 			return WaitInputUpdates(frames);
+		}
+
+		/// <summary>
+		/// Queues one finger event: Began starts a new touch, Moved and Ended
+		/// continue the one held. Each touch gets a fresh id, as a real finger does.
+		/// </summary>
+		public static Task QueueTouch(Vector2 position, TouchPhase phase, int frames)
+		{
+			EnsureSession();
+			if (s_Touchscreen == null || !s_Touchscreen.added)
+				s_Touchscreen = InputSystem.GetDevice(TouchscreenName) as Touchscreen ?? InputSystem.AddDevice<Touchscreen>(TouchscreenName);
+			if (phase == TouchPhase.Began)
+			{
+				if (s_TouchActive)
+					QueueTouchState(TouchPhase.Canceled, s_TouchPosition);
+				s_TouchId++;
+				s_TouchPosition = position;
+			}
+			QueueTouchState(phase, position);
+			s_TouchActive = phase == TouchPhase.Began || phase == TouchPhase.Moved || phase == TouchPhase.Stationary;
+			return WaitInputUpdates(frames);
+		}
+
+		static void QueueTouchState(TouchPhase phase, Vector2 position)
+		{
+			InputSystem.QueueStateEvent(s_Touchscreen, new TouchState
+			{
+				touchId = s_TouchId,
+				phase = phase,
+				position = position,
+				delta = phase == TouchPhase.Began ? Vector2.zero : position - s_TouchPosition,
+				pressure = 1,
+			});
+			s_TouchPosition = position;
 		}
 
 		public static Task QueueKeys(IEnumerable<Key> pressed, int frames)

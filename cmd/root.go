@@ -1568,6 +1568,10 @@ Options:
   --steps <N>             Intermediate moves for drag, one per frame (default 10)
   --camera <path>         Camera for projecting 3D/2D targets and pick
                           raycasts (default: Camera.main)
+  --touch                 tap/drag/down/move/up with a finger on a virtual
+                          Touchscreen instead of the mouse, for code that
+                          reads touches (EnhancedTouch, Touchscreen.current).
+                          move needs a finger down; up lifts it.
 
 Output:
   Pointer actions print x,y<TAB>kind<TAB>path for the topmost thing under the
@@ -1600,6 +1604,7 @@ Examples:
   unity-cli input tap /UI/Form/Email && unity-cli input type "qa@example.com"
   unity-cli input key LeftCtrl+A
   unity-cli input key Escape --hold-frames 3
+  unity-cli input tap 540,1500 --touch
 `)
 	case "test":
 		fmt.Print(`Usage: unity-cli test [options]

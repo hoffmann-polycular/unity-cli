@@ -55,6 +55,7 @@ var knownBooleanFlags = map[string]bool{
 	"--upgrade": true, "--uninstall": true,
 	"--force": true, "--allow-dirty-scenes": true, "--auto-save-scenes": true,
 	"--focused": true, "--unfocused": true, "--maximized": true,
+	"--touch": true,
 }
 
 func isKnownBooleanFlag(flag string) bool {

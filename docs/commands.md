@@ -1130,6 +1130,7 @@ Requires play mode (not paused), *Active Input Handling* set to `Input System Pa
 - `--hold-frames <N>` — frames to hold a `tap` or `key` before releasing (default 1).
 - `--steps <N>` — intermediate moves for `drag` (default 10).
 - `--camera <path>` — camera for projecting 3D/2D targets and `pick` raycasts (default `Camera.main`).
+- `--touch` — `tap`, `drag`, `down`, `move` and `up` use a finger on a virtual Touchscreen (`unity-cli Touchscreen`) instead of the mouse, for code that reads touches (`EnhancedTouch.Touch.activeTouches`, `Touchscreen.current`); the UI module handles them as touches too. The Touchscreen is added on the first `--touch`, since some games switch to touch controls as soon as one exists. `move --touch` needs a finger down; `up --touch` lifts it.
 
 **Output:** pointer actions print `x,y<TAB>kind<TAB>path` for the topmost thing under the pointer at the action's position (`drag` prints one line for each end). `kind` is `ui`, `3d`, `2d` or `none`. When the path is not your target or one of its children, something covered it and the game got the input there instead. `key` prints the combo and `type` prints `keyboard`; when an input field had keyboard focus they print `<combo><TAB>field<TAB>path` and `field<TAB>path`.
 
@@ -1147,6 +1148,7 @@ unity-cli input scroll 540,900 -120
 unity-cli input tap /UI/Form/Email && unity-cli input type "qa@example.com"
 unity-cli input key LeftCtrl+A
 unity-cli input key Escape --hold-frames 3
+unity-cli input tap 540,1500 --touch                    # a finger, for touch-only game code
 unity-cli input reset
 ```
 
