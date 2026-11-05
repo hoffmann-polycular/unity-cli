@@ -153,6 +153,23 @@ func TestBuildParams_BaseParams(t *testing.T) {
 	}
 }
 
+func TestBuildParams_NegativeNumbersAndDoubleDash(t *testing.T) {
+	p, err := buildParams([]string{"scroll", "540,900", "-120", "--camera", "/Cam", "--", "--literal"}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"scroll", "540,900", "-120", "--literal"}
+	if got, _ := p["args"].([]string); !sliceEqual(got, want) {
+		t.Errorf("args = %v, want %v", p["args"], want)
+	}
+	if p["camera"] != "/Cam" {
+		t.Errorf("camera = %v, want /Cam", p["camera"])
+	}
+	if _, ok := p[""]; ok {
+		t.Error("bare -- became an empty-named flag")
+	}
+}
+
 func sliceEqual(a, b []string) bool {
 	if len(a) == 0 && len(b) == 0 {
 		return true

@@ -59,6 +59,12 @@ func TestSplitFlagsAndPositionals(t *testing.T) {
 			[]string{"--wait", "--mode", "PlayMode"},
 		},
 		{
+			"double dash ends flags",
+			[]string{"--steps", "3", "--", "-120", "--x"},
+			[]string{"-120", "--x"},
+			[]string{"--steps", "3"},
+		},
+		{
 			"positional then boolean flag",
 			[]string{"/World/Player", "--null-delimited"},
 			[]string{"/World/Player"},

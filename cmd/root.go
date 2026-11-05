@@ -365,6 +365,10 @@ func buildParams(args []string, base map[string]interface{}) (map[string]interfa
 	flags := map[string]string{}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
+		if a == "--" {
+			positional = append(positional, args[i+1:]...)
+			break
+		}
 		if strings.HasPrefix(a, "--") {
 			key := strings.ReplaceAll(a[2:], "-", "_")
 			// Known boolean flags never consume the next arg as a value —

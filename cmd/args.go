@@ -67,10 +67,14 @@ func isKnownBooleanFlag(flag string) bool {
 // following token as its value UNLESS the flag is a known boolean or the
 // next token is itself a flag. This is the single boolean-aware splitter
 // every command routes through, so that "--boolflag <positional>" never
-// silently swallows the positional as a flag value.
+// silently swallows the positional as a flag value. A bare "--" ends flag
+// parsing: everything after it is positional.
 func splitFlagsAndPositionals(args []string) (positionals, flags []string) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
+		if a == "--" {
+			return append(positionals, args[i+1:]...), flags
+		}
 		if len(a) > 1 && strings.HasPrefix(a, "-") {
 			flags = append(flags, a)
 			if !isKnownBooleanFlag(a) && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
