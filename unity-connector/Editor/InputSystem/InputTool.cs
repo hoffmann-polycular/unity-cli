@@ -29,6 +29,7 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
@@ -290,7 +291,7 @@ namespace UnityCliConnector.Tools
 			{
 				var x = float.Parse(pixel.Groups[1].Value, CultureInfo.InvariantCulture);
 				var y = float.Parse(pixel.Groups[2].Value, CultureInfo.InvariantCulture);
-				pos = new Vector2(x, Screen.height - 1 - y);
+				pos = new Vector2(x, GameViewSize.y - 1 - y);
 			}
 			else
 			{
@@ -317,9 +318,25 @@ namespace UnityCliConnector.Tools
 				}
 			}
 
-			if (pos.x < 0 || pos.y < 0 || pos.x >= Screen.width || pos.y >= Screen.height)
-				return Result<Vector2>.Error($"{target} is off screen at {Format(pos)} (Game View is {Screen.width}x{Screen.height}).", ErrorKind.Usage);
+			var size = GameViewSize;
+			if (pos.x < 0 || pos.y < 0 || pos.x >= size.x || pos.y >= size.y)
+				return Result<Vector2>.Error($"{target} is off screen at {Format(pos)} (Game View renders {size.x}x{size.y}).", ErrorKind.Usage);
 			return Result<Vector2>.Success(pos);
+		}
+
+		/// <summary>
+		/// The game's render resolution: the space the game's Screen, UI and
+		/// Input System pointer positions live in. Screen.width/height are not
+		/// used: outside the player loop they report whichever Editor view last
+		/// painted, such as the Game View window's on-screen size at a scaled zoom.
+		/// </summary>
+		static Vector2Int GameViewSize
+		{
+			get
+			{
+				var size = Handles.GetMainGameViewSize();
+				return new Vector2Int(Mathf.RoundToInt(size.x), Mathf.RoundToInt(size.y));
+			}
 		}
 
 		static Vector3 WorldCenter(GameObject go)
@@ -378,7 +395,7 @@ namespace UnityCliConnector.Tools
 		}
 
 		static string Format(Vector2 unityScreen)
-			=> $"{Mathf.RoundToInt(unityScreen.x)},{Mathf.RoundToInt(Screen.height - 1 - unityScreen.y)}";
+			=> $"{Mathf.RoundToInt(unityScreen.x)},{Mathf.RoundToInt(GameViewSize.y - 1 - unityScreen.y)}";
 
 		static bool TryParseFloat(string s, out float value)
 			=> float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
