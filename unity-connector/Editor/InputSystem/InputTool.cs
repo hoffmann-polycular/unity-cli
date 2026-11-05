@@ -51,12 +51,15 @@ namespace UnityCliConnector.Tools
 	/// its intended target or on something covering it.
 	/// </summary>
 	[UnityCliTool(Name = "input",
-		Description = "Simulate real mouse/keyboard input in play mode. Actions: tap, drag, down, move, up, scroll, key, type, pick, reset.")]
+		Description = "Simulate real mouse/keyboard input in play mode: input <action> [args]. "
+			+ "tap|move|pick <target>, down|up [<target>], drag <from> <to>, scroll <target> <dy> [<dx>] (positive dy = wheel up), "
+			+ "key <Key>[+<Key>...], type <text>, reset. "
+			+ "A target is x,y in Game View pixels (top-left origin, the screenshot's space) or a GameObject path.")]
 	public static class InputTool
 	{
 		public class Parameters
 		{
-			[ToolParameter("Action: tap, drag, down, move, up, scroll, key, type, pick, or reset", Required = true)]
+			[ToolParameter("Action: tap, drag, down, move, up, scroll, key, type, pick, or reset. Usually given as the first positional instead.", Required = true)]
 			public string Action { get; set; }
 
 			[ToolParameter("Mouse button for tap/drag/down/up: left (default), right, middle.")]
