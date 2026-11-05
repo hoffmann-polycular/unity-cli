@@ -22,7 +22,13 @@
 
 package cmd
 
-import "testing"
+import (
+	"os"
+	"testing"
+	"time"
+
+	"github.com/hoffmann-polycular/unity-cli/internal/client"
+)
 
 func TestSplitFlagsAndPositionals(t *testing.T) {
 	tests := []struct {
@@ -90,5 +96,49 @@ func TestParseSubFlags_BooleanAware(t *testing.T) {
 	got = parseSubFlags([]string{"--force"})
 	if got["force"] != "true" {
 		t.Errorf("force = %q, want \"true\"", got["force"])
+	}
+}
+
+// TestExplicitTargetIgnoresOpenStdin: scripts and agent shells hand the CLI a
+// non-terminal stdin that never reaches EOF. A command given an explicit
+// target path must not wait on it.
+func TestExplicitTargetIgnoresOpenStdin(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = w.Close(); _ = r.Close() }()
+	orig := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = orig }()
+
+	send := func(string, interface{}) (*client.CommandResponse, error) {
+		return &client.CommandResponse{Success: true}, nil
+	}
+	cases := []struct {
+		name string
+		run  func() error
+	}{
+		{"get", func() error { _, err := getCmd([]string{"/A:Transform.localPosition"}, send); return err }},
+		{"inspect", func() error { _, err := inspectCmd([]string{"/A"}, send); return err }},
+		{"invoke", func() error { _, err := invokeCmd([]string{"/A:Foo.Bar"}, send); return err }},
+		{"component list", func() error { _, err := componentCmd([]string{"list", "/A"}, send); return err }},
+		{"component add", func() error { _, err := componentCmd([]string{"add", "/A", "Light"}, send); return err }},
+		{"prefab diff", func() error { _, err := prefabCmd([]string{"diff", "/A"}, send); return err }},
+		{"exec", func() error { _, err := dispatchOnline("exec", []string{"return 1;"}, send, nil); return err }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			done := make(chan error, 1)
+			go func() { done <- tc.run() }()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("blocked reading stdin despite an explicit target")
+			}
+		})
 	}
 }

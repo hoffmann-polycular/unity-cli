@@ -63,7 +63,13 @@ func prefabCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	// For the actions that take a single GameObject target, stdin paths
 	// drive multi-path mode. If a positional starts with ":" it's a suffix
 	// appended to every piped path (e.g. `prefab apply :Rigidbody.mass`).
-	stdinPaths := readStdinPaths()
+	var stdinPaths []string
+	switch action {
+	case "status", "diff", "apply", "revert", "unpack":
+		if wantsStdinPaths(positionals) {
+			stdinPaths = readStdinPaths()
+		}
+	}
 	hasStdin := len(stdinPaths) > 0
 
 	switch action {

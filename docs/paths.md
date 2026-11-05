@@ -138,7 +138,10 @@ Cardinality mismatch is a hard error (exit code 2) that lists both expansions.
 
 ### Fan-out via stdin
 
-When a command reads paths from stdin, fan-out happens across those paths:
+When a command reads paths from stdin, fan-out happens across those paths.
+Stdin is only consulted when no target path is given, or the target is a
+`:Component…` suffix — an explicit path never reads stdin, so scripts that
+inherit an open, non-terminal stdin don't block:
 
 ```bash
 # Set all selected enemies' mass — pipe from find

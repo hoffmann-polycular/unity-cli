@@ -48,8 +48,11 @@ func invokeCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 		return nil, err
 	}
 
-	if stdinPaths := readStdinPaths(); len(stdinPaths) > 0 {
-		params["paths"] = stdinPaths
+	positional, _ := splitFlagsAndPositionals(rest)
+	if wantsStdinPaths(positional) {
+		if stdinPaths := readStdinPaths(); len(stdinPaths) > 0 {
+			params["paths"] = stdinPaths
+		}
 	}
 
 	return send("invoke", params)

@@ -60,7 +60,13 @@ func componentCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	positionals, passthrough := splitFlagsAndPositionals(rest)
 	passthrough = translateJSONFlag(passthrough)
 
-	stdinPaths := readStdinPaths()
+	// Stdin supplies the targets only when no path positional is given:
+	// `list` then has none, `add`/`remove` only the type.
+	var stdinPaths []string
+	if (action == "list" && len(positionals) == 0) ||
+		((action == "add" || action == "remove" || action == "rm") && len(positionals) == 1) {
+		stdinPaths = readStdinPaths()
+	}
 	hasStdin := len(stdinPaths) > 0
 
 	switch action {

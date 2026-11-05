@@ -257,7 +257,9 @@ func dispatchOnline(category string, subArgs []string, send sendFn, resolve inst
 		}
 		return testCmd(subArgs, testSend, currentInst.Port)
 	case "exec":
-		subArgs = readStdinIfPiped(subArgs)
+		if code, _ := splitFlagsAndPositionals(subArgs); len(code) == 0 {
+			subArgs = readStdinIfPiped(subArgs)
+		}
 		params, err := buildParams(subArgs, nil)
 		if err != nil {
 			return nil, err

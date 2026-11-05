@@ -50,9 +50,12 @@ func getCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	}
 
 	// Pull positional + flags. Use stdin paths to drive fan-out when piped.
-	stdinPaths := readStdinPaths()
+	positional, flagArgs := splitFlagsAndPositionals(rest)
+	var stdinPaths []string
+	if wantsStdinPaths(positional) {
+		stdinPaths = readStdinPaths()
+	}
 	if len(stdinPaths) > 0 {
-		positional, flagArgs := splitFlagsAndPositionals(rest)
 		suffix := ""
 		if len(positional) > 0 && strings.HasPrefix(positional[0], ":") {
 			suffix = positional[0]

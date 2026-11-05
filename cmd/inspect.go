@@ -41,9 +41,12 @@ import (
 func inspectCmd(args []string, send sendFn) (*client.CommandResponse, error) {
 	rest := translateJSONFlag(args)
 
-	stdinPaths := readStdinPaths()
+	positional, flagArgs := splitFlagsAndPositionals(rest)
+	var stdinPaths []string
+	if wantsStdinPaths(positional) {
+		stdinPaths = readStdinPaths()
+	}
 	if len(stdinPaths) > 0 {
-		positional, flagArgs := splitFlagsAndPositionals(rest)
 		suffix := ""
 		if len(positional) > 0 && strings.HasPrefix(positional[0], ":") {
 			suffix = positional[0]

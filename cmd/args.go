@@ -119,6 +119,15 @@ func translateJSONFlag(args []string) []string {
 	return out
 }
 
+// wantsStdinPaths reports whether a fan-out command should read target paths
+// from stdin, given its positionals (first one = target). Only a missing
+// target or a ":Component..." suffix asks for piped paths: callers that pass
+// an explicit path often inherit a non-terminal stdin that never reaches EOF
+// (scripts, agent shells), and reading it would block forever.
+func wantsStdinPaths(positionals []string) bool {
+	return len(positionals) == 0 || strings.HasPrefix(positionals[0], ":")
+}
+
 // readStdinPaths reads newline-separated paths from stdin when piped,
 // trimming whitespace and dropping blank lines. Returns nil when stdin is a
 // terminal or empty. This drives batch/fan-out mode across commands.
