@@ -11,6 +11,7 @@ using System.IO;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
@@ -50,7 +51,7 @@ namespace UnityCliConnector.Tools
             public string Dotnet { get; set; }
         }
 
-        public static object HandleCommand(JObject parameters)
+        public static async Task<object> HandleCommand(JObject parameters)
         {
             var p = new ToolParams(parameters);
             var code = p.Get("code")
@@ -75,7 +76,7 @@ namespace UnityCliConnector.Tools
             if (source.Error != null)
                 return ErrorResponse.Usage(source.Error);
 
-            return CompileAndExecute(source, cscPath, dotnetPath);
+            return await CompileAndExecute(source, cscPath, dotnetPath);
         }
 
         /// <summary>
@@ -204,7 +205,7 @@ namespace UnityCliConnector.Tools
             return new string(body);
         }
 
-        private static object CompileAndExecute(GeneratedSource source, string cscOverride = null, string dotnetOverride = null)
+        private static async Task<object> CompileAndExecute(GeneratedSource source, string cscOverride = null, string dotnetOverride = null)
         {
             var utf8 = new UTF8Encoding(false);
             var tmpDir = Path.Combine(Path.GetTempPath(), "unity-cli-exec");
@@ -283,9 +284,20 @@ namespace UnityCliConnector.Tools
 
                 using (var proc = Process.Start(psi))
                 {
-                    var stdout = proc.StandardOutput.ReadToEnd();
-                    var stderr = proc.StandardError.ReadToEnd();
-                    proc.WaitForExit(30000);
+                    // Wait off the main thread: the compiler takes about a second,
+                    // during which the Editor (and a game in play mode) keeps running.
+                    // Both streams are drained concurrently, since reading one after
+                    // the other deadlocks once the unread one fills its pipe buffer.
+                    var stderrRead = proc.StandardError.ReadToEndAsync();
+                    var stdoutRead = proc.StandardOutput.ReadToEndAsync();
+                    var exited = await Task.Run(() => proc.WaitForExit(CompileTimeoutMs));
+                    if (!exited)
+                    {
+                        try { proc.Kill(); } catch { }
+                        return new ErrorResponse($"The C# compiler did not finish within {CompileTimeoutMs / 1000}s and was killed: {exe} {args}");
+                    }
+                    var stdout = await stdoutRead;
+                    var stderr = await stderrRead;
 
                     if (proc.ExitCode != 0)
                     {
@@ -320,34 +332,56 @@ namespace UnityCliConnector.Tools
             }
         }
 
+        const int CompileTimeoutMs = 30000;
+
+        // Searching the Editor install takes seconds on the main thread, so
+        // each exec would otherwise pay it twice. Only hits are cached.
+        static string s_Csc;
+        static string s_Dotnet;
+
         private static string FindCsc(string cscOverride = null)
         {
             if (!string.IsNullOrEmpty(cscOverride))
                 return cscOverride;
+            if (s_Csc != null && File.Exists(s_Csc))
+                return s_Csc;
 
             var content = EditorApplication.applicationContentsPath;
             var cscDll = SearchFile(content, "csc.dll");
-            if (cscDll != null) return cscDll;
+            if (cscDll != null) return s_Csc = cscDll;
 
             if (Application.platform == RuntimePlatform.WindowsEditor)
             {
                 var cscExe = SearchFile(content, "csc.exe");
-                if (cscExe != null) return cscExe;
+                if (cscExe != null) return s_Csc = cscExe;
             }
 
             return null;
         }
 
-        private static string SearchFile(string dir, string name)
+        /// <summary>
+        /// Breadth-first, so one unreadable or vanishing directory is skipped
+        /// instead of aborting the whole search (which made exec fail with
+        /// "Cannot find csc compiler" now and then).
+        /// </summary>
+        private static string SearchFile(string root, string name)
         {
-            try
+            var pending = new Queue<string>();
+            pending.Enqueue(root);
+            while (pending.Count > 0)
             {
-                var files = Directory.GetFiles(dir, name, SearchOption.AllDirectories);
-                foreach (var f in files)
-                    if (Path.GetFileName(f) == name)
-                        return f;
+                var dir = pending.Dequeue();
+                try
+                {
+                    foreach (var f in Directory.GetFiles(dir, name))
+                        if (Path.GetFileName(f) == name)
+                            return f;
+                    foreach (var sub in Directory.GetDirectories(dir))
+                        pending.Enqueue(sub);
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
             }
-            catch { }
             return null;
         }
 
@@ -356,9 +390,12 @@ namespace UnityCliConnector.Tools
             if (!string.IsNullOrEmpty(dotnetOverride))
                 return dotnetOverride;
 
+            if (s_Dotnet != null && File.Exists(s_Dotnet))
+                return s_Dotnet;
+
             var name = "dotnet" + (Application.platform == RuntimePlatform.WindowsEditor ? ".exe" : "");
             var found = SearchFile(EditorApplication.applicationContentsPath, name);
-            if (found != null) return found;
+            if (found != null) return s_Dotnet = found;
 
             if (Application.platform != RuntimePlatform.WindowsEditor)
             {
