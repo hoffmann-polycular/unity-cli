@@ -619,6 +619,10 @@ unity-cli prefab revert <path>:<component>
 unity-cli prefab revert <path>:<component>.<prop>
 ```
 
+To undo a `set` on a prefab instance, revert the property instead of setting the old value back — like typing it back in the Inspector, that leaves an override in place.
+
+When the instance lives inside a prefab asset (`Assets/Outer.prefab//Nested`), `apply` and `revert` also save that asset, so the removed override is gone from disk too.
+
 ### `prefab create`
 
 Save a scene object as a new prefab asset.

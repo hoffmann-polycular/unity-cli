@@ -429,7 +429,7 @@ namespace UnityCliConnector.Tools
 				}
 
 				return Done(verb, "instance",
-					PathResolver.GetCanonicalPath(instanceRoot), assetPath, format);
+					PathResolver.GetCanonicalPath(instanceRoot), assetPath, go, format);
 			}
 
 			// Component on GO required.
@@ -453,7 +453,7 @@ namespace UnityCliConnector.Tools
 				}
 
 				return Done(verb, "component",
-					$"{PathResolver.GetCanonicalPath(go)}:{component.GetType().Name}", assetPath, format);
+					$"{PathResolver.GetCanonicalPath(go)}:{component.GetType().Name}", assetPath, go, format);
 			}
 
 			// Component + property → property-level apply/revert.
@@ -506,11 +506,20 @@ namespace UnityCliConnector.Tools
 
 			return Done(verb, "property",
 				$"{PathResolver.GetCanonicalPath(go)}:{component.GetType().Name}.{PathResolver.JoinPropertyPath(parsed.Properties, parsed.Properties.Count)}",
-				assetPath, format);
+				assetPath, go, format);
 		}
 
-		private static object Done(string verb, string scope, string target, string assetPath, string format)
+		/// <summary>
+		/// Reports a finished apply/revert. When the instance itself lives in an
+		/// asset (a prefab nested in a prefab asset), its asset file is saved
+		/// too: apply only writes the source asset, and revert only memory,
+		/// so the containing asset's overrides would otherwise stay on disk.
+		/// </summary>
+		private static object Done(string verb, string scope, string target, string assetPath, GameObject edited, string format)
 		{
+			if (EditorUtility.IsPersistent(edited))
+				AssetDatabase.SaveAssetIfDirty(AssetDatabase.GUIDFromAssetPath(AssetDatabase.GetAssetPath(edited)));
+
 			var data = new Dictionary<string, object>
 			{
 				["action"] = verb,

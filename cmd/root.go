@@ -731,7 +731,10 @@ Notes:
   - apply / revert at the instance root act on the entire instance.
   - apply / revert with :Component target only that component's overrides.
   - apply / revert with :Component.prop target a single property — fails
-    cleanly if the property has no override.
+    cleanly if the property has no override. To undo a set, revert the
+    property: setting the old value back keeps the override.
+  - When the instance lives inside a prefab asset (Assets/Outer.prefab//X),
+    apply / revert also save that asset.
   - create uses PrefabUtility.SaveAsPrefabAssetAndConnect, so the scene
     GameObject becomes a connected instance of the new asset.
   - variant uses SaveAsPrefabAsset on a temporary connected instance, so
