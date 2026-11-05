@@ -464,20 +464,14 @@ func (s *replSession) commandClosures() (sendFn, instanceResolver) {
 	timeout := s.timeout
 	ignoreVer := s.ignoreVerMatch
 	send := func(command string, params interface{}) (*client.CommandResponse, error) {
-		inst, err := resolve()
-		if err != nil {
-			return nil, exit.Wrap(exit.Unreach, err)
-		}
-		if err := checkConnectorVersion(inst, Version, ignoreVer); err != nil {
-			return nil, exit.Wrap(exit.Runtime, err)
-		}
-		// Refresh cache so the prompt reflects whatever we just talked to.
-		s.currentInstance = inst
-		resp, err := client.Send(inst, command, params, timeout)
-		if err != nil {
-			return nil, exit.Wrap(exit.Unreach, err)
-		}
-		return resp, nil
+		return sendThroughReload(func() (*client.Instance, error) {
+			inst, err := resolve()
+			if err == nil {
+				// Refresh cache so the prompt reflects whatever we just talked to.
+				s.currentInstance = inst
+			}
+			return inst, err
+		}, ignoreVer, command, params, timeout)
 	}
 	return send, resolve
 }

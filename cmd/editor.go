@@ -41,7 +41,7 @@ func editorCmd(args []string, send sendFn, resolve instanceResolver) (*client.Co
 		}
 		resp, err := send("manage_editor", params)
 		if !wait {
-			return resp, err
+			return explainReloadDrop(resp, err, "Entering play mode")
 		}
 		return awaitPlayModeTransition(resp, err, resolve,
 			map[string]bool{"playing": true, "paused": true},
@@ -54,7 +54,7 @@ func editorCmd(args []string, send sendFn, resolve instanceResolver) (*client.Co
 			"wait_for_completion": wait,
 		})
 		if !wait {
-			return resp, err
+			return explainReloadDrop(resp, err, "Exiting play mode")
 		}
 		return awaitPlayModeTransition(resp, err, resolve,
 			map[string]bool{"ready": true},
@@ -92,6 +92,18 @@ func editorCmd(args []string, send sendFn, resolve instanceResolver) (*client.Co
 	default:
 		return nil, fmt.Errorf("unknown editor action: %s\nAvailable: play, stop, pause, refresh", action)
 	}
+}
+
+// explainReloadDrop replaces the client's generic "connection closed before
+// response" for a play/stop sent without --wait: the domain reload that
+// closed it is expected, and the caller should know commands sent right
+// after will wait for the editor to come back.
+func explainReloadDrop(resp *client.CommandResponse, err error, transition string) (*client.CommandResponse, error) {
+	if err != nil || resp == nil || !resp.ConnectionClosed {
+		return resp, err
+	}
+	resp.Message = transition + "; the editor is reloading its domain (pass --wait to block until it is done)."
+	return resp, nil
 }
 
 // awaitPlayModeTransition reconciles a --wait play/stop response with Unity's

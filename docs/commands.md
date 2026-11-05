@@ -1163,6 +1163,7 @@ unity-cli status
 Output includes: port, project path, Unity version, PID, and current state (`ready`, `playing`, `compiling`, etc.). Reports "not responding" if the heartbeat is older than 3 seconds.
 
 The CLI also checks Unity's state automatically before sending any command and waits for it to become responsive if it's busy.
+If the connector refuses the connection — its server is down for a domain reload, as right after `editor play` without `--wait` — the command waits for it to come back and is then sent (bounded at two minutes). A reload that cuts off a command already in flight is reported as an error, since it may or may not have run.
 
 ---
 

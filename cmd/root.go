@@ -168,18 +168,7 @@ func Execute() error {
 
 	timeout := flagTimeout
 	send := func(command string, params interface{}) (*client.CommandResponse, error) {
-		inst, err := resolve()
-		if err != nil {
-			return nil, exit.Wrap(exit.Unreach, err)
-		}
-		if err := checkConnectorVersion(inst, Version, flagIgnoreVersionMismatch); err != nil {
-			return nil, exit.Wrap(exit.Runtime, err)
-		}
-		resp, err := client.Send(inst, command, params, timeout)
-		if err != nil {
-			return nil, exit.Wrap(exit.Unreach, err)
-		}
-		return resp, nil
+		return sendThroughReload(resolve, flagIgnoreVersionMismatch, command, params, timeout)
 	}
 
 	resp, err := dispatchOnline(category, subArgs, send, resolve)

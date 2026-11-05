@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hoffmann-polycular/unity-cli/internal/cli/exit"
 	"github.com/hoffmann-polycular/unity-cli/internal/client"
 )
 
@@ -137,6 +138,56 @@ func waitForPlayState(resolve instanceResolver, want map[string]bool) bool {
 		}
 	}
 	return false
+}
+
+// reloadWaitTimeout bounds how long sendThroughReload waits for a connector
+// that refuses connections. Overridable in tests.
+var reloadWaitTimeout = 2 * time.Minute
+
+// reloadsOnPurpose lists the commands whose own domain reload (play/stop,
+// refresh --compile) may cut their reply off; their callers handle that.
+var reloadsOnPurpose = map[string]bool{"manage_editor": true, "refresh_unity": true}
+
+// sendThroughReload sends a command and, when the connector refuses the
+// connection, waits for it to come back and resends. A domain reload
+// (entering play mode, a recompile) takes the HTTP server down while the
+// heartbeat can still look fresh, so the command right after `editor play`
+// would otherwise fail with a raw dial error. A refused dial never reached
+// the editor, so resending cannot run the command twice. A connection closed
+// mid-request is an error instead: that command may already have run.
+func sendThroughReload(resolve instanceResolver, ignoreVersion bool, command string, params interface{}, timeoutMs int) (*client.CommandResponse, error) {
+	inst, err := resolve()
+	if err != nil {
+		return nil, exit.Wrap(exit.Unreach, err)
+	}
+	waited := false
+	deadline := time.Now().Add(reloadWaitTimeout)
+	for {
+		if err := checkConnectorVersion(inst, Version, ignoreVersion); err != nil {
+			return nil, exit.Wrap(exit.Runtime, err)
+		}
+		resp, err := client.Send(inst, command, params, timeoutMs)
+		if err == nil && resp.ConnectionClosed && !reloadsOnPurpose[command] {
+			// Elsewhere the reload may have struck before or after the command
+			// ran, so resending could run it twice.
+			return nil, exit.Wrap(exit.Unreach, fmt.Errorf(
+				"the connection closed before Unity answered %q, most likely for a domain reload (entering play mode, a recompile); it may or may not have run", command))
+		}
+		if err == nil {
+			return resp, nil
+		}
+		if !client.IsDialError(err) || time.Now().After(deadline) {
+			return nil, exit.Wrap(exit.Unreach, err)
+		}
+		if !waited {
+			fmt.Fprintln(os.Stderr, "Unity is not accepting connections (domain reload?) — waiting for it to come back...")
+			waited = true
+		}
+		time.Sleep(statusPollInterval)
+		if next, resolveErr := resolve(); resolveErr == nil {
+			inst = next
+		}
+	}
 }
 
 // waitForReady polls indefinitely until the heartbeat state becomes "ready".

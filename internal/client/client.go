@@ -7,8 +7,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -206,6 +208,13 @@ func DiscoverInstance(project string, port int) (*Instance, error) {
 	return &best, nil
 }
 
+// IsDialError reports whether err is a failure to connect: the request never
+// reached Unity, so resending it cannot run the command twice.
+func IsDialError(err error) bool {
+	var opErr *net.OpError
+	return errors.As(err, &opErr) && opErr.Op == "dial"
+}
+
 // Send dispatches a command to the Unity instance with a hard timeout.
 // Equivalent to SendContext(context.Background(), ...). Cancelling the
 // process via SIGINT will not abort an in-flight Send — use SendContext
@@ -243,7 +252,7 @@ func SendContext(ctx context.Context, inst *Instance, command string, params int
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return nil, fmt.Errorf("cannot connect to Unity at port %d: %v", inst.Port, err)
+		return nil, fmt.Errorf("cannot connect to Unity at port %d: %w", inst.Port, err)
 	}
 	defer resp.Body.Close()
 

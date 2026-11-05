@@ -5,12 +5,16 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/hoffmann-polycular/unity-cli/internal/cli/exit"
 	"github.com/hoffmann-polycular/unity-cli/internal/client"
 )
 
@@ -298,5 +302,94 @@ func TestWaitForAlive_FollowsResolverPortChange(t *testing.T) {
 	}
 	if callCount < 2 {
 		t.Fatalf("expected resolver to be called multiple times, got %d", callCount)
+	}
+}
+
+// TestSendThroughReload_RetriesRefusedConnection: during a domain reload the
+// connector's port refuses connections; the command must land once the
+// server is back instead of failing with the dial error.
+func TestSendThroughReload_RetriesRefusedConnection(t *testing.T) {
+	origPollInterval := statusPollInterval
+	statusPollInterval = 5 * time.Millisecond
+	t.Cleanup(func() { statusPollInterval = origPollInterval })
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+
+	resolves := 0
+	resolve := func() (*client.Instance, error) {
+		resolves++
+		if resolves == 3 {
+			server, listenErr := net.Listen("tcp", ln.Addr().String())
+			if listenErr != nil {
+				t.Fatal(listenErr)
+			}
+			go func() {
+				_ = http.Serve(server, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					_, _ = w.Write([]byte(`{"success":true,"message":"ok"}`))
+				}))
+			}()
+			t.Cleanup(func() { _ = server.Close() })
+		}
+		return &client.Instance{Port: port}, nil
+	}
+
+	resp, err := sendThroughReload(resolve, true, "status", nil, 5000)
+	if err != nil {
+		t.Fatalf("sendThroughReload: %v", err)
+	}
+	if resp.Message != "ok" {
+		t.Errorf("message = %q, want ok", resp.Message)
+	}
+}
+
+func TestSendThroughReload_GivesUpAfterTimeout(t *testing.T) {
+	origPollInterval, origTimeout := statusPollInterval, reloadWaitTimeout
+	statusPollInterval, reloadWaitTimeout = 5*time.Millisecond, 30*time.Millisecond
+	t.Cleanup(func() { statusPollInterval, reloadWaitTimeout = origPollInterval, origTimeout })
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+
+	_, err = sendThroughReload(func() (*client.Instance, error) {
+		return &client.Instance{Port: port}, nil
+	}, true, "status", nil, 1000)
+	var cliErr *exit.CLIError
+	if !errors.As(err, &cliErr) || cliErr.Code != exit.Unreach {
+		t.Fatalf("err = %v, want the unreachable dial error", err)
+	}
+}
+
+func TestSendThroughReload_ClosedConnectionIsAnError(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		_ = http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK) // empty body: what a reload mid-request looks like
+		}))
+	}()
+	resolve := func() (*client.Instance, error) {
+		return &client.Instance{Port: ln.Addr().(*net.TCPAddr).Port}, nil
+	}
+
+	if _, err := sendThroughReload(resolve, true, "exec", nil, 5000); err == nil {
+		t.Error("exec: closed connection reported as success")
+	}
+	for _, command := range []string{"manage_editor", "refresh_unity"} {
+		resp, err := sendThroughReload(resolve, true, command, nil, 5000)
+		if err != nil || !resp.ConnectionClosed {
+			t.Errorf("%s: resp=%+v err=%v, want ConnectionClosed passed through", command, resp, err)
+		}
 	}
 }
