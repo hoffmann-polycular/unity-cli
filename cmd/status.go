@@ -121,12 +121,28 @@ func waitForAlive(resolve instanceResolver, timeoutMs int) (*client.Instance, er
 // only guards a genuinely dead editor. Overridable in tests.
 var playModeWaitTimeout = 2 * time.Minute
 
+// playAbortSettle is how long the heartbeat must keep reporting an abort
+// state before waitForPlayState believes it, bridging the moments around a
+// domain reload where the state has not caught up yet. Overridable in tests.
+var playAbortSettle = 3 * time.Second
+
+type playStateOutcome int
+
+const (
+	playStateTimedOut playStateOutcome = iota
+	playStateReached
+	playStateAborted
+)
+
 // waitForPlayState polls the heartbeat until the editor reports one of the
 // wanted states, tolerating the connection loss and instance-file churn of the
-// domain reload that entering/exiting play mode causes. Returns true once a
-// wanted state is observed, false on timeout.
-func waitForPlayState(resolve instanceResolver, want map[string]bool) bool {
+// domain reload that entering/exiting play mode causes. A heartbeat written
+// after the wait began that keeps reporting an abort state (edit mode while
+// entering play mode) for playAbortSettle means the transition was cancelled.
+func waitForPlayState(resolve instanceResolver, want, abort map[string]bool) playStateOutcome {
+	since := time.Now().UnixMilli()
 	deadline := time.Now().Add(playModeWaitTimeout)
+	var abortSeen time.Time
 	for time.Now().Before(deadline) {
 		time.Sleep(statusPollInterval)
 		status, err := resolve()
@@ -134,10 +150,19 @@ func waitForPlayState(resolve instanceResolver, want map[string]bool) bool {
 			continue // file briefly stale/unreadable mid-reload — keep polling.
 		}
 		if want[status.State] {
-			return true
+			return playStateReached
+		}
+		if !abort[status.State] || status.Timestamp <= since {
+			abortSeen = time.Time{}
+			continue
+		}
+		if abortSeen.IsZero() {
+			abortSeen = time.Now()
+		} else if time.Since(abortSeen) >= playAbortSettle {
+			return playStateAborted
 		}
 	}
-	return false
+	return playStateTimedOut
 }
 
 // reloadWaitTimeout bounds how long sendThroughReload waits for a connector

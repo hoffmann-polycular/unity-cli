@@ -22,7 +22,8 @@ func editorCmd(args []string, send sendFn, resolve instanceResolver) (*client.Co
 
 	switch action {
 	case "play":
-		_, wait := flags["wait"]
+		_, noWait := flags["no-wait"]
+		wait := !noWait
 		params := map[string]interface{}{
 			"action":              "play",
 			"wait_for_completion": wait,
@@ -45,10 +46,12 @@ func editorCmd(args []string, send sendFn, resolve instanceResolver) (*client.Co
 		}
 		return awaitPlayModeTransition(resp, err, resolve,
 			map[string]bool{"playing": true, "paused": true},
+			map[string]bool{"ready": true},
 			"Entered play mode (confirmed after domain reload).")
 
 	case "stop":
-		_, wait := flags["wait"]
+		_, noWait := flags["no-wait"]
+		wait := !noWait
 		resp, err := send("manage_editor", map[string]interface{}{
 			"action":              "stop",
 			"wait_for_completion": wait,
@@ -57,7 +60,7 @@ func editorCmd(args []string, send sendFn, resolve instanceResolver) (*client.Co
 			return explainReloadDrop(resp, err, "Exiting play mode")
 		}
 		return awaitPlayModeTransition(resp, err, resolve,
-			map[string]bool{"ready": true},
+			map[string]bool{"ready": true}, nil,
 			"Exited play mode (confirmed after domain reload).")
 
 	case "pause":
@@ -95,18 +98,18 @@ func editorCmd(args []string, send sendFn, resolve instanceResolver) (*client.Co
 }
 
 // explainReloadDrop replaces the client's generic "connection closed before
-// response" for a play/stop sent without --wait: the domain reload that
+// response" for a play/stop sent with --no-wait: the domain reload that
 // closed it is expected, and the caller should know commands sent right
 // after will wait for the editor to come back.
 func explainReloadDrop(resp *client.CommandResponse, err error, transition string) (*client.CommandResponse, error) {
 	if err != nil || resp == nil || !resp.ConnectionClosed {
 		return resp, err
 	}
-	resp.Message = transition + "; the editor is reloading its domain (pass --wait to block until it is done)."
+	resp.Message = transition + "; the editor is reloading its domain (drop --no-wait to block until it is done)."
 	return resp, nil
 }
 
-// awaitPlayModeTransition reconciles a --wait play/stop response with Unity's
+// awaitPlayModeTransition reconciles a waiting play/stop response with Unity's
 // domain reload. When "Reload Domain" is enabled (the Editor default), entering
 // or exiting play mode tears down the C# app domain — so the connector's
 // wait_for_completion await and its HTTP response die with the domain and the
@@ -118,7 +121,7 @@ func explainReloadDrop(resp *client.CommandResponse, err error, transition strin
 // directly (sendErr == nil), and we return that response unchanged.
 func awaitPlayModeTransition(
 	resp *client.CommandResponse, sendErr error,
-	resolve instanceResolver, want map[string]bool, confirmedMsg string,
+	resolve instanceResolver, want, abort map[string]bool, confirmedMsg string,
 ) (*client.CommandResponse, error) {
 	// The transition dropped the connection when either the send errored
 	// outright or the client saw the connection close before a response body —
@@ -133,8 +136,11 @@ func awaitPlayModeTransition(
 	// target state it worked; otherwise (e.g. it actually died) time out and
 	// surface the original error.
 	fmt.Fprintln(os.Stderr, "Connection dropped (domain reload) — waiting for the editor to come back...")
-	if waitForPlayState(resolve, want) {
+	switch waitForPlayState(resolve, want, abort) {
+	case playStateReached:
 		return &client.CommandResponse{Success: true, Message: confirmedMsg}, nil
+	case playStateAborted:
+		return nil, fmt.Errorf("play mode was aborted after the domain reload: the editor is back in edit mode (see unity-cli console --type error)")
 	}
 	if sendErr != nil {
 		return nil, sendErr

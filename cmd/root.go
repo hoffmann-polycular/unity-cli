@@ -72,7 +72,7 @@ func Execute() error {
 	// net/http's client logs "Unsolicited response received on idle HTTP
 	// channel..." to the standard logger whenever the connector answers on a
 	// channel the client already considers idle — which happens after a domain
-	// reload (play/stop --wait, refresh --compile) and while polling PlayMode
+	// reload (play/stop, refresh --compile) and while polling PlayMode
 	// test results. It's cosmetic noise that looks like an error and leaks
 	// net/http internals, so drop it process-wide. The standard log package is
 	// used for nothing else in this CLI.
@@ -481,7 +481,7 @@ Assets
   reimport <path> [--recursive]   re-run the import pipeline
 
 Editor
-  editor play|stop|pause|refresh [--wait|--compile|--unfocused|--focused|--maximized]
+  editor play|stop|pause|refresh [--no-wait|--compile|--unfocused|--focused|--maximized]
   console [--lines N] [--type ...] [--stacktrace ...] [--clear]
   menu "<path>"               execute a Unity menu item
   screenshot [--view game|scene|<camera-path>] [--supersize N] [-o file]
@@ -544,17 +544,19 @@ func printTopicHelp(topic string) bool {
 		fmt.Print(`Usage: unity-cli editor <play|stop|pause|refresh> [options]
 
 Subcommands:
-  play [--wait] [--unfocused|--focused|--maximized]
-                      Enter play mode
-                      --wait blocks until Unity fully enters play mode.
-                      Without --wait, returns immediately after requesting.
+  play [--no-wait] [--unfocused|--focused|--maximized]
+                      Enter play mode and wait until Unity is in it. Fails
+                      when the entry is aborted (compile errors, a project
+                      validator cancelling it), with the errors it logged.
+                      --no-wait returns right after requesting.
                       Without a focus flag, the Game view's own setting
                       (Play Focused / Play Maximized / Play Unfocused)
                       applies. A focus flag overrides it for this entry
                       only; the Editor's setting is restored afterwards.
                       Agents: prefer --unfocused, so the Game view doesn't
                       take keyboard focus from the user.
-  stop                Exit play mode. No effect if not playing.
+  stop [--no-wait]    Exit play mode and wait until Unity is back in edit
+                      mode. No effect if not playing.
   pause               Toggle pause. Only works during play mode.
   refresh             Refresh AssetDatabase (reimport changed assets).
                       Blocked in play mode unless --force is set.
@@ -562,8 +564,8 @@ Subcommands:
     --force           Allow refresh during play mode and force asset update.
 
 Examples:
-  unity-cli editor play --wait
-  unity-cli editor play --wait --unfocused
+  unity-cli editor play
+  unity-cli editor play --unfocused
   unity-cli editor stop
   unity-cli editor refresh --compile
   unity-cli editor refresh --force

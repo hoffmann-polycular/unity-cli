@@ -4,11 +4,13 @@
 
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEditorInternal;
+using UnityEngine;
 
 namespace UnityCliConnector.Tools
 {
@@ -58,6 +60,8 @@ namespace UnityCliConnector.Tools
                 case "play":
                     if (!EditorApplication.isPlaying)
                     {
+                        if (EditorUtility.scriptCompilationFailed)
+                            return new ErrorResponse("Cannot enter play mode: scripts have compile errors (see unity-cli console --type error).");
                         string playFocus = p.Get("play_focus");
                         string focusNote = "";
                         if (!string.IsNullOrEmpty(playFocus))
@@ -68,13 +72,17 @@ namespace UnityCliConnector.Tools
                             if (!applied)
                                 focusNote = $" No Game view was open, so '{playFocus}' had no effect.";
                         }
-                        EditorApplication.isPlaying = true;
-                        if (waitForCompletion)
+                        if (!waitForCompletion)
                         {
-                            await WaitForPlayModeStateAsync(PlayModeStateChange.EnteredPlayMode, TimeSpan.FromSeconds(PlayModeTimeoutSeconds));
-                            return new SuccessResponse("Entered play mode (confirmed)." + focusNote);
+                            EditorApplication.isPlaying = true;
+                            return new SuccessResponse("Entering play mode." + focusNote);
                         }
-                        return new SuccessResponse("Entered play mode." + focusNote);
+                        var entry = WaitForPlayModeEntryAsync(TimeSpan.FromSeconds(PlayModeTimeoutSeconds));
+                        EditorApplication.isPlaying = true;
+                        var abortReason = await entry;
+                        if (abortReason != null)
+                            return new ErrorResponse(abortReason);
+                        return new SuccessResponse("Entered play mode (confirmed)." + focusNote);
                     }
                     return new SuccessResponse("Already in play mode.");
 
@@ -95,7 +103,7 @@ namespace UnityCliConnector.Tools
                             await WaitForPlayModeStateAsync(PlayModeStateChange.EnteredEditMode, TimeSpan.FromSeconds(PlayModeTimeoutSeconds));
                             return new SuccessResponse("Exited play mode (confirmed).");
                         }
-                        return new SuccessResponse("Exited play mode.");
+                        return new SuccessResponse("Exiting play mode.");
                     }
                     return new SuccessResponse("Already stopped (not in play mode).");
 
@@ -182,6 +190,62 @@ namespace UnityCliConnector.Tools
                 }
                 return new ErrorResponse($"User layer '{nameResult.Value}' not found.");
             }
+        }
+
+        /// <summary>
+        /// Completes with null once play mode is entered, otherwise with the
+        /// reason it was not. A playModeStateChanged handler (typically a
+        /// project's validator) cancels entry by setting isPlaying = false;
+        /// Unity then goes from ExitingEditMode straight to ExitingPlayMode and
+        /// never enters play mode, so errors logged meanwhile are the reason.
+        /// Subscribe before requesting play: those handlers run synchronously.
+        /// With domain reload enabled the task dies with the domain on success;
+        /// the CLI then confirms entry through the heartbeat.
+        /// </summary>
+        private static Task<string> WaitForPlayModeEntryAsync(TimeSpan timeout)
+        {
+            var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var start = DateTime.UtcNow;
+            var errors = new List<string>();
+
+            void OnLog(string condition, string stackTrace, LogType type)
+            {
+                if (type == LogType.Error || type == LogType.Exception || type == LogType.Assert)
+                    errors.Add(condition);
+            }
+
+            string Aborted() => errors.Count == 0
+                ? "Play mode was aborted before it started (nothing was logged as an error)."
+                : "Play mode was aborted before it started:\n" + string.Join("\n", errors);
+
+            void Finish(string abortReason)
+            {
+                Application.logMessageReceived -= OnLog;
+                EditorApplication.playModeStateChanged -= OnStateChanged;
+                EditorApplication.update -= Tick;
+                tcs.TrySetResult(abortReason);
+            }
+
+            void OnStateChanged(PlayModeStateChange state)
+            {
+                if (state == PlayModeStateChange.EnteredPlayMode)
+                    Finish(null);
+                else if (state == PlayModeStateChange.ExitingPlayMode || state == PlayModeStateChange.EnteredEditMode)
+                    Finish(Aborted());
+            }
+
+            void Tick()
+            {
+                if (!EditorApplication.isPlayingOrWillChangePlaymode)
+                    Finish(Aborted());
+                else if (DateTime.UtcNow - start > timeout)
+                    Finish($"Play mode was not entered within {timeout.TotalSeconds:0}s.");
+            }
+
+            Application.logMessageReceived += OnLog;
+            EditorApplication.playModeStateChanged += OnStateChanged;
+            EditorApplication.update += Tick;
+            return tcs.Task;
         }
 
         private static Task WaitForPlayModeStateAsync(PlayModeStateChange targetState, TimeSpan timeout)

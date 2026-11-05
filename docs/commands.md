@@ -786,7 +786,7 @@ unity-cli scene close UI --discard
 # CI: save dirty scenes, then play
 unity-cli scene list --json | jq -r '.[] | select(.isDirty) | .path' | \
     xargs -I{} unity-cli scene save {}
-unity-cli editor play --wait
+unity-cli editor play
 
 # Bulk reformat: open, reserialize, save
 unity-cli find Assets/Scenes/ --type Scene --plain | while read s; do
@@ -910,8 +910,8 @@ unity-cli editor <play|stop|pause|refresh> [options]
 ```
 
 **Subcommands:**
-- `play [--wait] [--unfocused|--focused|--maximized]` — enter play mode. `--wait` blocks until fully entered. Without a focus flag the Game view's own Enter Play Mode setting (Play Focused / Play Maximized / Play Unfocused) applies; a flag overrides it for this one entry and the Editor's setting is restored afterwards. The flags are mutually exclusive. Agents should prefer `--unfocused` so the Game view doesn't take keyboard focus from the user.
-- `stop` — exit play mode.
+- `play [--no-wait] [--unfocused|--focused|--maximized]` — enter play mode and wait until Unity is in it, across the domain reload. Fails when entry is aborted — scripts with compile errors, or a project validator cancelling it — and reports the errors logged meanwhile. `--no-wait` returns right after requesting. Without a focus flag the Game view's own Enter Play Mode setting (Play Focused / Play Maximized / Play Unfocused) applies; a flag overrides it for this one entry and the Editor's setting is restored afterwards. The flags are mutually exclusive. Agents should prefer `--unfocused` so the Game view doesn't take keyboard focus from the user.
+- `stop [--no-wait]` — exit play mode and wait until Unity is back in edit mode.
 - `pause` — toggle pause/resume (play mode only).
 - `refresh` — refresh AssetDatabase.
   - `--compile` — recompile scripts and wait until compilation finishes (fails if compile errors are present).
@@ -919,8 +919,8 @@ unity-cli editor <play|stop|pause|refresh> [options]
 
 **Examples:**
 ```bash
-unity-cli editor play --wait
-unity-cli editor play --wait --unfocused
+unity-cli editor play
+unity-cli editor play --unfocused
 unity-cli editor stop
 unity-cli editor refresh --compile
 unity-cli editor refresh --force
@@ -1172,7 +1172,7 @@ unity-cli status
 Output includes: port, project path, Unity version, PID, and current state (`ready`, `playing`, `compiling`, etc.). Reports "not responding" if the heartbeat is older than 3 seconds.
 
 The CLI also checks Unity's state automatically before sending any command and waits for it to become responsive if it's busy.
-If the connector refuses the connection — its server is down for a domain reload, as right after `editor play` without `--wait` — the command waits for it to come back and is then sent (bounded at two minutes). A reload that cuts off a command already in flight is reported as an error, since it may or may not have run.
+If the connector refuses the connection — its server is down for a domain reload, as right after `editor play --no-wait` — the command waits for it to come back and is then sent (bounded at two minutes). A reload that cuts off a command already in flight is reported as an error, since it may or may not have run.
 
 ---
 

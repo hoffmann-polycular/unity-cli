@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,11 +17,14 @@ import (
 func swapPollTiming() func() {
 	origInterval := statusPollInterval
 	origTimeout := playModeWaitTimeout
+	origSettle := playAbortSettle
 	statusPollInterval = time.Millisecond
-	playModeWaitTimeout = 20 * time.Millisecond
+	playModeWaitTimeout = 50 * time.Millisecond
+	playAbortSettle = 5 * time.Millisecond
 	return func() {
 		statusPollInterval = origInterval
 		playModeWaitTimeout = origTimeout
+		playAbortSettle = origSettle
 	}
 }
 
@@ -33,19 +37,21 @@ func TestEditorCmd_Play(t *testing.T) {
 	if (*params)["action"] != "play" {
 		t.Errorf("expected action=play, got %v", (*params)["action"])
 	}
-	if (*params)["wait_for_completion"] != false {
-		t.Errorf("expected wait_for_completion=false, got %v", (*params)["wait_for_completion"])
+	if (*params)["wait_for_completion"] != true {
+		t.Errorf("expected play to wait by default, got wait_for_completion=%v", (*params)["wait_for_completion"])
 	}
 }
 
-func TestEditorCmd_PlayWait(t *testing.T) {
-	send, params := mockSend("manage_editor", t)
-	resolve := func() (*client.Instance, error) { return nil, nil }
-	if _, err := editorCmd([]string{"play", "--wait"}, send, resolve); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if (*params)["wait_for_completion"] != true {
-		t.Errorf("expected wait_for_completion=true, got %v", (*params)["wait_for_completion"])
+func TestEditorCmd_PlayNoWait(t *testing.T) {
+	for _, action := range []string{"play", "stop"} {
+		send, params := mockSend("manage_editor", t)
+		resolve := func() (*client.Instance, error) { return nil, nil }
+		if _, err := editorCmd([]string{action, "--no-wait"}, send, resolve); err != nil {
+			t.Fatalf("%s: unexpected error: %v", action, err)
+		}
+		if (*params)["wait_for_completion"] != false {
+			t.Errorf("%s --no-wait: expected wait_for_completion=false, got %v", action, (*params)["wait_for_completion"])
+		}
 	}
 }
 
@@ -95,7 +101,7 @@ func TestEditorCmd_PlayWait_ReconnectAfterReload(t *testing.T) {
 	resolve := func() (*client.Instance, error) {
 		return &client.Instance{State: "playing"}, nil
 	}
-	resp, err := editorCmd([]string{"play", "--wait"}, send, resolve)
+	resp, err := editorCmd([]string{"play"}, send, resolve)
 	if err != nil {
 		t.Fatalf("expected reconnect to succeed, got error: %v", err)
 	}
@@ -116,7 +122,7 @@ func TestEditorCmd_PlayWait_ReconnectOnConnectionClosedSentinel(t *testing.T) {
 	resolve := func() (*client.Instance, error) {
 		return &client.Instance{State: "playing"}, nil
 	}
-	resp, err := editorCmd([]string{"play", "--wait"}, send, resolve)
+	resp, err := editorCmd([]string{"play"}, send, resolve)
 	if err != nil {
 		t.Fatalf("expected reconnect to succeed, got error: %v", err)
 	}
@@ -135,12 +141,12 @@ func TestEditorCmd_PlayWait_TimeoutSurfacesError(t *testing.T) {
 	resolve := func() (*client.Instance, error) {
 		return &client.Instance{State: "ready"}, nil // never flips to playing
 	}
-	if _, err := editorCmd([]string{"play", "--wait"}, send, resolve); err == nil {
+	if _, err := editorCmd([]string{"play"}, send, resolve); err == nil {
 		t.Fatal("expected the original send error to surface after timeout")
 	}
 }
 
-// stop --wait has the same domain-reload drop on exiting play mode.
+// stop has the same domain-reload drop on exiting play mode.
 func TestEditorCmd_StopWait_ReconnectAfterReload(t *testing.T) {
 	defer swapPollTiming()()
 	send := func(string, interface{}) (*client.CommandResponse, error) {
@@ -149,12 +155,41 @@ func TestEditorCmd_StopWait_ReconnectAfterReload(t *testing.T) {
 	resolve := func() (*client.Instance, error) {
 		return &client.Instance{State: "ready"}, nil
 	}
-	resp, err := editorCmd([]string{"stop", "--wait"}, send, resolve)
+	resp, err := editorCmd([]string{"stop"}, send, resolve)
 	if err != nil {
 		t.Fatalf("expected reconnect to succeed, got error: %v", err)
 	}
 	if resp == nil || !resp.Success {
 		t.Fatalf("expected a success response after reconnect, got %+v", resp)
+	}
+}
+
+// A play request whose connection dropped for the reload, after which the
+// heartbeat settles back in edit mode, was aborted: an error, not a timeout.
+func TestEditorCmd_Play_AbortedAfterReload(t *testing.T) {
+	defer swapPollTiming()()
+	send := func(string, interface{}) (*client.CommandResponse, error) {
+		return &client.CommandResponse{Success: true, ConnectionClosed: true}, nil
+	}
+	resolve := func() (*client.Instance, error) {
+		return &client.Instance{State: "ready", Timestamp: time.Now().UnixMilli()}, nil
+	}
+	_, err := editorCmd([]string{"play"}, send, resolve)
+	if err == nil || !strings.Contains(err.Error(), "aborted") {
+		t.Fatalf("expected an aborted error, got %v", err)
+	}
+}
+
+// The connector reports an abort it saw before any reload as a failed
+// response; it must reach the caller unchanged.
+func TestEditorCmd_Play_AbortedBeforeReload(t *testing.T) {
+	send := func(string, interface{}) (*client.CommandResponse, error) {
+		return &client.CommandResponse{Success: false, Message: "Play mode was aborted before it started:\nboom"}, nil
+	}
+	resolve := func() (*client.Instance, error) { return nil, nil }
+	resp, err := editorCmd([]string{"play"}, send, resolve)
+	if err != nil || resp == nil || resp.Success || !strings.Contains(resp.Message, "boom") {
+		t.Fatalf("expected the connector's abort response, got resp=%+v err=%v", resp, err)
 	}
 }
 

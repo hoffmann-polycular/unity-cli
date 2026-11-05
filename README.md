@@ -71,7 +71,7 @@ unity-cli find Assets/Sprites/ --type Texture2D --plain | \
 - `:Importer` path suffix — read/write any importer setting like a property
 
 **Editor control** (from the original project)
-- `editor` — play/stop/pause/refresh, with `--wait` polling
+- `editor` — play/stop/pause/refresh; play/stop wait for the transition and report an aborted entry
 - `console` — read and filter Unity log entries
 - `exec` — run arbitrary C# inside the Editor
 - `test` — run EditMode/PlayMode tests
@@ -152,7 +152,7 @@ unity-cli get /Player:Transform.position
 unity-cli set /Player:Rigidbody.mass 15
 
 # Control play mode (--unfocused/--focused/--maximized override the Game view's setting once)
-unity-cli editor play --wait --unfocused
+unity-cli editor play --unfocused
 unity-cli editor stop
 
 # Run C# code directly

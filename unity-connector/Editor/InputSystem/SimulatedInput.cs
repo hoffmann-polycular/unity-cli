@@ -82,7 +82,7 @@ namespace UnityCliConnector.InputSimulation
 				+ "set Player Settings > Active Input Handling to 'Input System Package' or 'Both'.";
 #else
 			if (!EditorApplication.isPlaying)
-				return "input requires play mode (unity-cli editor play --wait).";
+				return "input requires play mode (unity-cli editor play).";
 			if (EditorApplication.isPaused)
 				return "Play mode is paused; input events are only processed while the game runs.";
 			if (InputSystem.settings.updateMode == InputSettings.UpdateMode.ProcessEventsManually)
